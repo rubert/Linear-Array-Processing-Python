@@ -1,3 +1,4 @@
+
 class rfClass:
 	
 	def __init__(self):
@@ -6,6 +7,7 @@ class rfClass:
 		self.fs = 40.*10**6 #Default sampling frequency in Hz
 		self.deltaY = self.soundSpeed/(2*self.fs)*10**3 #Pixel spacing in mm
 		self.data = None
+		self.ROI = None
 		self.isSectorData = False
 
 
@@ -59,8 +61,7 @@ class rfClass:
 		frames from a data set."""
 			
 		#Check that a Data set has been loaded	
-		import types
-		if self.data.__class__ == types.NoneType:
+		if self.data == None:
 			return	
 		
 		
@@ -97,27 +98,83 @@ class rfClass:
 			
 
 
-	def setROI(self, xLow, xHigh, yLow, yHigh):
-		"""Input boundaries in array Indexes.  This function will highlight the ROI on the image."""
-		
-		#Check that a Data set has been loaded	
-		import types
-		if self.data.__class__ == types.NoneType:
-			return	
-		
+	def setROI(self):
+		"""
+		Do a mouseclick somewhere, move the mouse to some destination, release
+		the button.  This class gives click- and release-events and also draws
+		a line or a box from the click-point to the actual mouseposition
+		(within the same axes) until the button is released.  Within the
+		method 'self.ignore()' it is checked wether the button from eventpress
+		and eventrelease are the same.
 
-		#Assume it is a square data set for the moment.
-		self.roi_xLow = xLow 
-		self.roi_xHigh = xHigh 
-		self.roi_yLow = yLow
-		self.roi_yHigh = yHigh
-	
+		"""
+		#Check that a Data set has been loaded	
+		if self.data == None:
+			return	
+
+		from matplotlib.widgets import RectangleSelector
+		import numpy as np
+		import matplotlib.pyplot as plt
+		current_ax = plt.subplot(111)               # make a new plotingrangej
+
+
+		def on_select(eclick, erelease):
+			self.ROI = [0,0,0,0]
+			if eclick.xdata > erelease.xdata:
+				self.ROI[0] = int(erelease.xdata/self.deltaX)
+				self.ROI[1] = int(eclick.xdata/self.deltaX)
+			else:
+				self.ROI[0] = int(eclick.xdata/self.deltaX)
+				self.ROI[1] = int(erelease.xdata/self.deltaX)
+
+			if eclick.ydata > erelease.ydata:
+				self.ROI[2] = int(erelease.ydata/self.deltaY)
+				self.ROI[3]=  int(eclick.ydata/self.deltaY)
+			else:
+				self.ROI[2] = int(eclick.ydata/self.deltaY)
+				self.ROI[3] = int(erelease.ydata/self.deltaY)
+
+
+		
+		# drawtype is 'box' or 'line' or 'none'
+		rs = RectangleSelector(current_ax, on_select,
+						       drawtype='box', useblit=True,
+						       button=[1,3], # don't use middle button
+						       minspanx=5, minspany=5,
+						       spancoords='data')
+			
+		
 		#could be image sequence or just a 2-D image
 		if len(self.data.shape) > 2:
 			temp = self.data[:,:,0]
 
 		else:
 			temp = self.data
+
+
+		from scipy.signal import hilbert
+		from numpy import log10
+		bMode = log10(abs(hilbert(temp, axis = 0)))
+		bMode = bMode - bMode.max()
+		bMode[bMode < -3] = -3
+
+		#import matplotlib and create plot
+		import matplotlib.cm as cm
+
+		plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
+		plt.show()
+
+	def drawROI(self):	
+		#Check that a Data set has been loaded	
+		if self.ROI == None:
+			return	
+
+		#could be image sequence or just a 2-D image
+		if len(self.data.shape) > 2:
+			temp = self.data[:,:,0]
+
+		else:
+				temp = self.data
 
 
 		#Create masked array with B-mode data, mask entries for box
@@ -132,24 +189,25 @@ class rfClass:
 
 		import matplotlib.cm as cm
 		palette = cm.gray
-		palette.set_bad('r')	
-	
+		palette.set_bad('r')
+
 		from numpy import ma, zeros
 		bMode = ma.array(bMode)
 		bMode.mask = zeros(bMode.shape)
 		#replace some B-mode data with sentinels
-		
-		bMode.mask[yLow:yHigh, xLow] = True
-		bMode.mask[yLow:yHigh, xHigh] = True
+		xLow = self.ROI[0]; xHigh = self.ROI[1]
+		yLow = self.ROI[2]; yHigh = self.ROI[3]
+		bMode.mask[self.ROI[2]:self.ROI[3], self.ROI[0]] = True
+		bMode.mask[self.ROI[2]:self.ROI[3], self.ROI[1]] = True
+		#since the pixels are so much thinner in the axial direction we use ten of them to
+		#draw the ROI
 		if yLow < 10:
-			yLow = 10		
+			yLow = 10
 		bMode.mask[yLow-10:yLow, xLow:xHigh] = True
-		
+
 		if yHigh > bMode.mask.shape[0] - 10:
 			yHigh = bMode.mask.shape[0] - 10
 		bMode.mask[yHigh-10:yHigh, xLow:xHigh] = True
 
-		im = plt.imshow(bMode, cmap = palette,  extent = [0, self.fovX,  self.fovY, 0])
+		im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
 		plt.show()
-
-

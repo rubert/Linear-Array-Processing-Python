@@ -14,4 +14,7 @@ def readUltrasonixData(fname):
 
 	frames = frames.reshape( (header['samples'], header['lines'], header['fpa']*header['numAngles']), order = 'F' )
 
+	#convert data from having fortran order to having C order
+	frames = frames.copy('C')
+
 	return (frames, header)
