@@ -7,9 +7,11 @@ class rfClass:
 		self.fs = 40.*10**6 #Default sampling frequency in Hz
 		self.deltaY = self.soundSpeed/(2*self.fs)*10**3 #Pixel spacing in mm
 		self.data = None
-		self.ROI = None
+		self.roiX = None
+		self.roiY = None
 		self.isSectorData = False
-
+		self.minimumROIBoundaryY = 0  #for processing strain data
+		self.minimumROIBoundaryX = 0
 
 	def readSeimensRFD(self, filename):
 		"""Load functions from a C library for reading files from the Seimens Antares, created by Matt McCormick."""
@@ -22,7 +24,39 @@ class rfClass:
 		self.fovX = self.deltaX*(self.data.shape[1] - 1)
 		self.fovY = self.deltaY*(self.data.shape[0] -1 )	
 
+	def readSeimensEIFiles(self, dirname):
+		import os, numpy
+		startdir = os.getcwd()
+		os.chdir(dirname)
+		
+		metaData = open('metaData.txt', 'r')
+		metaList = [0,0,0,0]
+		for i in range(4):
+			metaList[i] = int(metaData.readline() )
 	
+		metaData.close()
+		nFrames = len( [name for name in os.listdir('.') if os.path.isfile(name)])
+		nFrames -= 1 #because of metaData.txt
+		points = len( range( metaList[3]/2, metaList[2] + metaList[3]/2 ) )
+		aLines = metaList[1]
+		from numpy import zeros, fromfile
+		self.data = zeros( (points, aLines, nFrames) )
+		readThisMany = (metaList[2]+ metaList[3]/2)*metaList[1]
+		for x in range(nFrames):
+			tempIn = open(str(x), 'r')
+			frame = fromfile(tempIn,  numpy.int16, readThisMany)
+			frame = frame.reshape( ( metaList[2]+ metaList[3]/2, metaList[1] )  , order = 'F' )
+			self.data[:,:,x] = frame[metaList[3]/2:metaList[3]/2 + metaList[2], :].copy('C')
+
+		self.soundSpeed = 1540.  #m/s
+		self.fs = 40.*10**6  #Hz
+		self.deltaX = 40./aLines  #assume a 40 mm FOV
+		self.deltaY = self.soundSpeed/(2*self.fs)*10**3
+		self.fovX = self.deltaX*(self.data.shape[1] - 1)
+		self.fovY = self.deltaY*(self.data.shape[0] -1 )	
+
+		os.chdir(startdir)
+
 	def readUltrasonixData(self, filename):
 		"""Import data from the wobbler transducer on the Ultrasonix SonixTouch ultrasound system, output from a GUI created by 
 		myself."""
@@ -98,7 +132,7 @@ class rfClass:
 			
 
 
-	def setROI(self):
+	def setRoi(self):
 		"""
 		Do a mouseclick somewhere, move the mouse to some destination, release
 		the button.  This class gives click- and release-events and also draws
@@ -119,23 +153,38 @@ class rfClass:
 
 
 		def on_select(eclick, erelease):
-			self.ROI = [0,0,0,0]
-			if eclick.xdata > erelease.xdata:
-				self.ROI[0] = int(erelease.xdata/self.deltaX)
-				self.ROI[1] = int(eclick.xdata/self.deltaX)
-			else:
-				self.ROI[0] = int(eclick.xdata/self.deltaX)
-				self.ROI[1] = int(erelease.xdata/self.deltaX)
+			self.roiX = [0,0]
+			self.roiY = [0,0]
+			#lower boundary, make sure it doesn't violate block matching constraints
+			tempX	= int(erelease.xdata/self.deltaX)
+			if tempX < self.minimumROIBoundaryX:
+				tempX = self.minimumROIBoundaryX
+			if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
+				tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1			
+			self.roiX[0] = tempX
+			
+			tempX	= int(eclick.xdata/self.deltaX)
+			if tempX < self.minimumROIBoundaryX:
+				tempX = self.minimumROIBoundaryX
+			if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
+				tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1			
+			self.roiX[1] = tempX
+			
+			tempY	= int(eclick.ydata/self.deltaY)
+			if tempY < self.minimumROIBoundaryY:
+				tempY = self.minimumROIBoundaryY
+			if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
+				tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1			
+			self.roiY[0] = tempY
 
-			if eclick.ydata > erelease.ydata:
-				self.ROI[2] = int(erelease.ydata/self.deltaY)
-				self.ROI[3]=  int(eclick.ydata/self.deltaY)
-			else:
-				self.ROI[2] = int(eclick.ydata/self.deltaY)
-				self.ROI[3] = int(erelease.ydata/self.deltaY)
+			tempY	= int(erelease.ydata/self.deltaY)
+			if tempY < self.minimumROIBoundaryY:
+				tempY = self.minimumROIBoundaryY
+			if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
+				tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1			
+			self.roiY[1] = tempY
 
 
-		
 		# drawtype is 'box' or 'line' or 'none'
 		rs = RectangleSelector(current_ax, on_select,
 						       drawtype='box', useblit=True,
@@ -164,11 +213,8 @@ class rfClass:
 		plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
 		plt.show()
 
-	def drawROI(self):	
-		#Check that a Data set has been loaded	
-		if self.ROI == None:
-			return	
-
+	def createRoiArray(self):
+#		#Check that a Data set has been loaded	
 		#could be image sequence or just a 2-D image
 		if len(self.data.shape) > 2:
 			temp = self.data[:,:,0]
@@ -184,30 +230,49 @@ class rfClass:
 		bMode = bMode - bMode.max()
 		bMode[bMode < -3] = -3
 
-		#import matplotlib and create plot
-		import matplotlib.pyplot as plt
-
-		import matplotlib.cm as cm
-		palette = cm.gray
-		palette.set_bad('r')
-
 		from numpy import ma, zeros
 		bMode = ma.array(bMode)
 		bMode.mask = zeros(bMode.shape)
 		#replace some B-mode data with sentinels
-		xLow = self.ROI[0]; xHigh = self.ROI[1]
-		yLow = self.ROI[2]; yHigh = self.ROI[3]
-		bMode.mask[self.ROI[2]:self.ROI[3], self.ROI[0]] = True
-		bMode.mask[self.ROI[2]:self.ROI[3], self.ROI[1]] = True
+		xLow = min(self.roiX); xHigh = max(self.roiX)
+		yLow = min(self.roiY); yHigh = max(self.roiY)
+		
+		bMode.mask[yLow:yHigh, xLow] = True
+		bMode.mask[yLow:yHigh, xHigh] = True
 		#since the pixels are so much thinner in the axial direction we use ten of them to
 		#draw the ROI
-		if yLow < 10:
-			yLow = 10
-		bMode.mask[yLow-10:yLow, xLow:xHigh] = True
+		lineThickY = 10
+		if yLow < lineThickY:
+			yLow = lineThickY 
+		bMode.mask[yLow-lineThickY:yLow, xLow:xHigh] = True
 
-		if yHigh > bMode.mask.shape[0] - 10:
-			yHigh = bMode.mask.shape[0] - 10
-		bMode.mask[yHigh-10:yHigh, xLow:xHigh] = True
+		if yHigh > bMode.mask.shape[0] - lineThickY:
+			yHigh = bMode.mask.shape[0] - lineThickY 
+		bMode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
+
+		return bMode
+
+	def showRoiImage(self):
+		bMode = self.createRoiArray()	
+		#import matplotlib and create plot
+		import matplotlib.pyplot as plt
+		import matplotlib.cm as cm
+		palette = cm.gray
+		palette.set_bad('r')
 
 		im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
 		plt.show()
+
+
+
+	def saveROIImage(self, fname):
+		bMode = self.createRoiArray()	
+		#import matplotlib and create plot
+		import matplotlib.pyplot as plt
+		import matplotlib.cm as cm
+		palette = cm.gray
+		palette.set_bad('r')
+	
+		im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
+		plt.savefig(fname)
+
