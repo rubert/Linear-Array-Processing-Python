@@ -1,0 +1,12 @@
+This is a project for performing block matching, and creating strain images 
+with ultrasound data using Python.  There are many dependencies.
+
+
+I am using the following packages:
+Matplotlib
+Scipy
+Numpy
+OpenCV
+ITK
+
+
