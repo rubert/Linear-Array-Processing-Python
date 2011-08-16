@@ -29,7 +29,7 @@ class rfClass:
 				rfd
 				'''
 
-		if not dataType == 'ei' or dataType == 'rfd':
+		if not( dataType == 'ei' or dataType == 'rfd' ):
 			print 'Error.  Datatype must be ei or rfd'
 			return
 
@@ -68,7 +68,7 @@ class rfClass:
 			self.fs = hInfo[1]
 			self.deltaX = (1/hInfo[2])*10.
 			#read a frame to find out number of points and A lines
-			tempFrame = readrfd.readrfd(fname, 1)
+			tempFrame = readrfd.readrfd(filename, 1)
 			self.nFrames = readrfd.rfdframes(filename)
 			self.deltaY = self.soundSpeed/(2*self.fs)*10**3
 			self.fovX = self.deltaX*(tempFrame.shape[1] - 1)
@@ -106,7 +106,7 @@ class rfClass:
 
 		if self.dataType == 'rfd':
 			import readrfd
-			self.data = readrfd.readrfd(self.fname, frameNo - 1)
+			self.data = readrfd.readrfd(self.fname, frameNo + 1)
 			
 
 	def readUltrasonixData(self, filename):
@@ -476,13 +476,13 @@ class rfClass:
 
 	
 		if not self.roiX == None:		
-			strain = numpy.float32( self.strain[ min(self.roiY):max(self.roiY), min(self.roiX):max(self.roiX) ] )	
+			strain = numpy.float32( abs(self.strain[ min(self.roiY):max(self.roiY), min(self.roiX):max(self.roiX) ] ) )	
 		else:	
-			strain = numpy.float32(self.strain)			
-		
+			strain = numpy.float32(abs(self.strain)	)		
+	
+		strain[strain > self.strainLimit] = self.strainLimit	
 		im = converter.GetImageFromArray(strain)	
+		im.SetSpacing( (self.deltaX, self.deltaY) )
 		writer.SetFileName(fname)
 		writer.SetInput( im )
 		writer.Update()
-		
-
