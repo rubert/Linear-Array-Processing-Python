@@ -1,13 +1,23 @@
 class rfClass:
-	
-	def __init__(self):
-		"""  A class for managing B-mode and strain imaging of RF data """
+
+	roiX = None
+	roiY = None
+		
+	def __init__(self, filename, dataType):
+		'''Input:  filename:  The name of the file or directory the data is from \n
+		   dataType:  A lowercase string indicating the type of the data, choices are: \n
+		   		ei
+				rfd
+				 '''
+		
+		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' ):
+			print 'Error.  Datatype must be ei,rfd,rf '
+			return
+
 		self.soundSpeed = 1540. #m/s
 		self.fs = 40.*10**6 #Default sampling frequency in Hz
 		self.deltaY = self.soundSpeed/(2*self.fs)*10**3 #Pixel spacing in mm
 		self.data = None
-		self.roiX = None
-		self.roiY = None
 		self.isSectorData = False
 		self.minimumROIBoundaryY = 0  #for processing strain data
 		self.minimumROIBoundaryX = 0
@@ -18,21 +28,7 @@ class rfClass:
 		self.strainLimit = .02
 		self.strain = None
 
-		#parameters for file reading
-		self.fname = None
-		self.ftype = None
-
-	def setInputData(self, filename, dataType):
-		'''Input:  filename:  The name of the file or directory the data is from \n
-		   dataType:  A lowercase string indicating the type of the data, choices are: \n
-		   		ei
-				rfd
-				'''
-
-		if not( dataType == 'ei' or dataType == 'rfd' ):
-			print 'Error.  Datatype must be ei or rfd'
-			return
-
+								
 		self.fname = filename
 		self.dataType = dataType
 
@@ -61,6 +57,8 @@ class rfClass:
 			self.fovY = self.deltaY*(points -1 )	
 			os.chdir(startdir)
 
+			self.points = points
+			self.lines = aLines	
 	
 		if dataType == 'rfd':
 			import readrfd
@@ -73,12 +71,30 @@ class rfClass:
 			self.deltaY = self.soundSpeed/(2*self.fs)*10**3
 			self.fovX = self.deltaX*(tempFrame.shape[1] - 1)
 			self.fovY = self.deltaY*(tempFrame.shape[0] -1 )	
-				
+			self.points = tempFrame.shape[0]
+			self.lines = tempFrame.shape[1]	
 	
+
+		if dataType == 'rf':
+			#The header is 19 32-bit integers
+			import numpy 
+			dataFile = open(self.fname, 'r')
+			header = numpy.fromfile(dataFile, numpy.int32, 19)
+			self.header = header
+			self.fs = header[15]	
+		        self.deltaY = self.soundSpeed/(2*self.fs)*10**3	
+			self.points = header[3]
+			self.lines = header[2]
+			self.deltaX = 40./self.lines #parameter in header is broken, so assume a 40 mm FOV
+			self.fovX = self.lines*self.deltaX
+			self.fovY = self.points*self.deltaY		
+			self.nFrames = header[1]
 		
-			
-	def readFrame(self, frameNo):
-		'''When calling this from python it will get frames numbered from 0 to numFrames -1'''
+		
+	def readFrame(self, frameNo = 0):
+		'''Read a single frame from the input file, the method varies depending on the file type that
+		was read in.  This can handle linear array data from the Seimens S2000 recorded in either mode
+		or the Ultrasonix scanner recorded using the clinical software.'''
 		if self.dataType == 'ei':
 			import os, numpy
 			startdir = os.getcwd()
@@ -107,41 +123,21 @@ class rfClass:
 		if self.dataType == 'rfd':
 			import readrfd
 			self.data = readrfd.readrfd(self.fname, frameNo + 1)
-			
 
-	def readUltrasonixData(self, filename):
-		"""Import data from the wobbler transducer on the Ultrasonix SonixTouch ultrasound system, output from a GUI created by 
-		myself."""
-		from readUltrasonixFiles import readUltrasonixData
-		from numpy import zeros, sin, cos, pi
-		(self.data, header) = readUltrasonixData(filename)
-		self.fs = 40.*10**6 #Hz, always 40 Mhz
-		self.deltaTheta = .6088  #degrees
-		self.rt = 42.9  #distance from array foci to image
-		self.rm = 27.25 #distance to motor rotation axis, mm
-		self.deltaR = self.soundSpeed/(2.*self.fs)*10**3
-		self.isSectorData = True
+		if self.dataType == 'rf':
+			#Read in the header, then read in up to one less frame than necessary
+			import numpy
+			dataFile = open(self.fname, 'r')
+			header = numpy.fromfile(dataFile, numpy.int32, 19)
+			if frameNo == 0:
+				temp = numpy.fromfile( dataFile, numpy.int16, self.points*self.lines)
+				self.data = temp.reshape( (self.points, self.lines),order='F')
+			else:
+				dataFile.seek( 2*self.points*self.lines*(frameNo-1), 1) 
+				temp = numpy.fromfile( dataFile, numpy.int16, self.points*self.lines)
+				self.data = temp.reshape( (self.points, self.lines), order='F')
 
-		self.X = zeros((self.data.shape[0],self.data.shape[1]) )
-		self.Y = zeros((self.data.shape[0],self.data.shape[1]) )
-
-		centerLine = self.data.shape[1]/2
-
-
-		for x in range(self.data.shape[1]):
-				startX = self.rt*sin( (self.deltaTheta * (x - centerLine) )*pi/180.0 )
-				startY = self.rt*cos( (self.deltaTheta * (x - centerLine) )*pi/180.0 )
-				deltaX = self.deltaR*sin( (self.deltaTheta * (x -centerLine) )*pi/180.0 )
-				deltaY = self.deltaR*cos( (self.deltaTheta * (x - centerLine) )*pi/180.0 )
-
-
-				for y in range(self.data.shape[0]): 
-					self.X[y,x] = startX + deltaX*y 
-					self.Y[y,x] = startY + deltaY*y 
-				
-
-
-	
+		
 	def makeBmodeImage(self, frameNo = 0):
 		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
 		frames from a data set."""
@@ -175,6 +171,75 @@ class rfClass:
 			plt.show()
 			
 
+	def setRoiFixedSize(self, windowX = 4, windowY = 4):
+		'''The Roi size here is given in mm'''
+
+		
+		from matplotlib import pyplot
+		from scipy.signal import hilbert
+		from numpy import log10, arange
+		
+		self.readFrame()
+		yExtent = self.deltaY*self.points
+		xExtent = self.deltaX*self.lines
+		bmode = log10(abs(hilbert(self.data, axis=0) ) )
+		bmode = bmode - bmode.max()
+		pyplot.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+		x= pyplot.ginput()
+		pyplot.close()
+		#Compute the size of the analysis window in points and A-lines
+		self.windowY = int(windowY/self.deltaY)
+		self.windowX = int(windowX/self.deltaX)
+
+		#Compute the center of the bounding box in pixels
+		boxX = int( x[0][0]/self.deltaX )
+		boxY = int( x[0][1]/self.deltaY )
+
+		xLow = boxX - self.windowX/2
+		if xLow < 0:
+			xLow = 0
+		xHigh = xLow + self.windowX
+		if xHigh > self.lines:
+			xHigh = self.lines
+		xLow = xHigh - self.windowX
+
+		yLow = boxY - self.windowY/2
+		if yLow < 0:
+			yLow = 0
+		yHigh = yLow + self.windowY
+		if yHigh > self.points+1:
+			yHigh = self.points+1
+		yLow = yHigh - self.windowY
+
+		rfClass.roiX = [xLow, xHigh]
+		rfClass.roiY = [yLow, yHigh]
+
+		#Draw Analysis Window
+		import matplotlib.cm as cm
+		palette = cm.gray
+		palette.set_bad('r')
+		from numpy import ma, zeros
+		bmode = ma.array(bmode)
+		bmode.mask = zeros(bmode.shape)
+
+
+		bmode.mask[yLow:yHigh, xLow] = True
+		bmode.mask[yLow:yHigh, xHigh] = True
+		#since the pixels are so much thinner in the axial direction we use ten of them to
+		#draw the ROI
+		lineThickY = 10
+		if yLow < lineThickY:
+			yLow = lineThickY 
+		bmode.mask[yLow-lineThickY:yLow, xLow:xHigh] = True
+
+		if yHigh > bmode.mask.shape[0] - lineThickY:
+			yHigh = bmode.mask.shape[0] - lineThickY 
+		bmode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
+
+
+		pyplot.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
+		pyplot.show()
+
 
 	def setRoi(self):
 		"""
@@ -197,36 +262,36 @@ class rfClass:
 
 
 		def on_select(eclick, erelease):
-			self.roiX = [0,0]
-			self.roiY = [0,0]
+			rfClass.roiX = [0,0]
+			rfClass.roiY = [0,0]
 			#lower boundary, make sure it doesn't violate block matching constraints
 			tempX	= int(erelease.xdata/self.deltaX)
 			if tempX < self.minimumROIBoundaryX:
 				tempX = self.minimumROIBoundaryX
 			if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
 				tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1			
-			self.roiX[0] = tempX
+			rfClass.roiX[0] = tempX
 			
 			tempX	= int(eclick.xdata/self.deltaX)
 			if tempX < self.minimumROIBoundaryX:
 				tempX = self.minimumROIBoundaryX
 			if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
 				tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1			
-			self.roiX[1] = tempX
+			rfClass.roiX[1] = tempX
 			
 			tempY	= int(eclick.ydata/self.deltaY)
 			if tempY < self.minimumROIBoundaryY:
 				tempY = self.minimumROIBoundaryY
 			if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
 				tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1			
-			self.roiY[0] = tempY
+			rfClass.roiY[0] = tempY
 
 			tempY	= int(erelease.ydata/self.deltaY)
 			if tempY < self.minimumROIBoundaryY:
 				tempY = self.minimumROIBoundaryY
 			if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
 				tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1			
-			self.roiY[1] = tempY
+			rfClass.roiY[1] = tempY
 
 
 		# drawtype is 'box' or 'line' or 'none'
@@ -272,8 +337,8 @@ class rfClass:
 		bMode = ma.array(bMode)
 		bMode.mask = zeros(bMode.shape)
 		#replace some B-mode data with sentinels
-		xLow = min(self.roiX); xHigh = max(self.roiX)
-		yLow = min(self.roiY); yHigh = max(self.roiY)
+		xLow = min(rfClass.roiX); xHigh = max(rfClass.roiX)
+		yLow = min(rfClass.roiY); yHigh = max(rfClass.roiY)
 		
 		bMode.mask[yLow:yHigh, xLow] = True
 		bMode.mask[yLow:yHigh, xHigh] = True
@@ -373,11 +438,11 @@ class rfClass:
 
 		bMode = palette.to_rgba(bMode)
 
-		if not self.roiX == None:		
-			self.strain[0:min(self.roiY), :, :] = bMode[0:min(self.roiY), :, :]
-			self.strain[max(self.roiY):-1, :, :] = bMode[max(self.roiY):-1, :, :]
-			self.strain[:, 0:min(self.roiX), :] = bMode[:, 0:min(self.roiX), :]
-			self.strain[:, max(self.roiX):-1, :] = bMode[:, max(self.roiX):-1, :]
+		if not rfClass.roiX == None:		
+			self.strain[0:min(rfClass.roiY), :, :] = bMode[0:min(rfClass.roiY), :, :]
+			self.strain[max(rfClass.roiY):-1, :, :] = bMode[max(rfClass.roiY):-1, :, :]
+			self.strain[:, 0:min(rfClass.roiX), :] = bMode[:, 0:min(rfClass.roiX), :]
+			self.strain[:, max(rfClass.roiX):-1, :] = bMode[:, max(rfClass.roiX):-1, :]
 					
 		self.fovStrainX = self.deltaX*self.strain.shape[1]
 		self.fovStrainY = self.deltaY*self.strain.shape[0] 
@@ -475,8 +540,8 @@ class rfClass:
 			self.strain[strainRfIndexesNew, x] = interp(strainRfIndexesNew )
 
 	
-		if not self.roiX == None:		
-			strain = numpy.float32( abs(self.strain[ min(self.roiY):max(self.roiY), min(self.roiX):max(self.roiX) ] ) )	
+		if not rfClass.roiX == None:		
+			strain = numpy.float32( abs(self.strain[ min(rfClass.roiY):max(rfClass.roiY), min(rfClass.roiX):max(rfClass.roiX) ] ) )	
 		else:	
 			strain = numpy.float32(abs(self.strain)	)		
 	

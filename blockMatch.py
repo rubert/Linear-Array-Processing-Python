@@ -32,7 +32,7 @@ class UniquePriorityQueue(PriorityQueue):
 class blockMatchingParameters():
 
 	def __init__(self):	
-		self.windowY = 91
+		self.windowY = 51
 		self.halfY = 45
 		self.windowX = 5
 		self.halfX = 2
@@ -41,6 +41,7 @@ class blockMatchingParameters():
 		self.rangeX = 8
 		self.smallRangeX = 2
 		self.overlap = .6
+		self.strainWindow = 13
 
 
 class blockMatchClass():
@@ -64,6 +65,11 @@ class blockMatchClass():
 		startX = self.params.halfX + self.params.rangeX + self.params.smallRangeX
 		stopX = self.lines - self.params.halfX - self.params.smallRangeX - self.params.rangeX
 
+		self.stepY = stepY
+		self.startY = startY
+		self.stopY =stopY
+		self.startX = startX
+		self.stopX = stopX
 	###create arrays containing window Centers in RF data coordinates
 		self.windowCenterY = range(startY,stopY, stepY)
 		self.numY = len(self.windowCenterY)
@@ -393,3 +399,31 @@ class blockMatchClass():
 				self.addToSeedList(self.quality[y, x], y,x, intDpY,intDpX, region)
 
 
+	def displacementToStrain(self):
+		from numpy import zeros, ones, array
+		from numpy.linalg import lstsq
+		#want to solve equation y = mx + b for m
+		#[x1   1      [m     = [y1
+		# x2   1       b ]	y2
+		# x3   1]               y3]
+		#
+		#strain image will be smaller than displacement image
+
+		self.strain = zeros( (self.numY - self.params.strainWindow + 1, self.numX) ) 
+		A = ones( (self.params.strainWindow,2) )
+		colOne = array( range(0, self.params.strainWindow) )
+		A[:,0] = colOne
+		halfWindow = (self.params.strainWindow-1)/2 
+		self.startYstrain = self.startY + self.stepY*halfWindow 
+		self.stopYstrain = self.stopY - self.stepY*halfWindow
+
+		for y in range( halfWindow,self.numY - halfWindow):
+			for x in range(self.numX):
+				b = self.dpY[y - halfWindow: y + halfWindow + 1, x]
+				out = lstsq(A, b)
+				xVec = out[0]
+				self.strain[y - halfWindow,x] = xVec[0]
+
+
+		
+		self.strain = self.strain/self.stepY
