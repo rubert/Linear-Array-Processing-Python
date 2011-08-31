@@ -2,6 +2,7 @@ class rfClass:
 
 	roiX = None
 	roiY = None
+	bModeImageCount = 0
 		
 	def __init__(self, filename, dataType):
 		'''Input:  filename:  The name of the file or directory the data is from \n
@@ -10,9 +11,12 @@ class rfClass:
 				rfd
 				 '''
 		
-		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' ):
+		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' ):
 			print 'Error.  Datatype must be ei,rfd,rf '
 			return
+		
+		self.fname = filename
+		self.dataType = dataType
 
 		self.soundSpeed = 1540. #m/s
 		self.fs = 40.*10**6 #Default sampling frequency in Hz
@@ -29,9 +33,6 @@ class rfClass:
 		self.strain = None
 
 								
-		self.fname = filename
-		self.dataType = dataType
-
 		if dataType == 'ei':
 			import os, numpy
 			startdir = os.getcwd()
@@ -90,11 +91,33 @@ class rfClass:
 			self.fovY = self.points*self.deltaY		
 			self.nFrames = header[1]
 		
-		
-	def readFrame(self, frameNo = 0):
+		if dataType == 'sim':
+				
+			'''Given an input file try to open it and read in the data, the default transducer bandwidth and 
+			center frequency are .5 and 5 MHz'''
+			f = open(filename, 'rb')
+			
+			import numpy as np
+			#in Hz
+			self.freqstep =float( np.fromfile(f, np.double,1) )
+			self.points = int( np.fromfile(f, np.int32,1) )
+			self.fs = self.freqstep*self.points
+			self.lines = int( np.fromfile(f, np.int32,1) )
+			tempReal = np.fromfile(f,np.double, self.points*self.lines )
+			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			f.close()
+			
+			self.deltaY = 1540. / (2*self.fs)*10**3
+			self.deltaX = .2  #beamspacing in mm
+			self.fovX = self.lines*self.deltaX
+			self.fovY = self.deltaY*self.points
+						
+			
+	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, Bw = .5):
 		'''Read a single frame from the input file, the method varies depending on the file type that
 		was read in.  This can handle linear array data from the Seimens S2000 recorded in either mode
-		or the Ultrasonix scanner recorded using the clinical software.'''
+		or the Ultrasonix scanner recorded using the clinical software.
+		For a simulated data file, the 2nd and 3rd parameters matter, not for real data.'''
 		if self.dataType == 'ei':
 			import os, numpy
 			startdir = os.getcwd()
@@ -137,11 +160,37 @@ class rfClass:
 				temp = numpy.fromfile( dataFile, numpy.int16, self.points*self.lines)
 				self.data = temp.reshape( (self.points, self.lines), order='F')
 
-		
-	def makeBmodeImage(self, frameNo = 0):
+
+		if self.dataType == 'sim':
+					
+			self.centerFreq = centerFreq #Hz
+			self.Bw = Bw
+			f = open(self.fname, 'rb')
+			
+			import numpy as np
+			#in Hz
+			self.freqstep =float( np.fromfile(f, np.double,1) )
+			self.points = int( np.fromfile(f, np.int32,1) )
+			self.fs = self.freqstep*self.points
+			self.lines = int( np.fromfile(f, np.int32,1) )
+			tempReal = np.fromfile(f,np.double, self.points*self.lines )
+			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			f.close()
+			
+			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
+					
+			import math
+			alpha = 4*math.log10(2)/(self.centerFreq*self.centerFreq*self.Bw*self.Bw)
+			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
+			self.pulseSpectrum = 1e6*np.exp(-alpha* (f - self.centerFreq)*(f - self.centerFreq) )
+			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
+			self.data = np.fft.ifft(temp,axis=0 ).real	
+
+	def MakeBmodeImage(self, frameNo = 0):
 		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
 		frames from a data set."""
-			
+		
+		rfClass.bModeImageCount +=1	
 		#Check that a Data set has been loaded	
 		self.readFrame(frameNo)
 		temp = self.data
@@ -154,12 +203,19 @@ class rfClass:
 		bMode = bMode - bMode.max()
 
 		#import matplotlib and create plot
+		import matplotlib
+		matplotlib.use('Qt4Agg')
 		import matplotlib.pyplot as plt
 
 		if not self.isSectorData:
 			import matplotlib.cm as cm
-			im = plt.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-			plt.show()
+			fig = plt.figure()
+			fig.canvas.set_window_title("B-mode image " + str(rfClass.bModeImageCount) )
+			ax = fig.add_subplot(1,1,1)
+			ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+			plt.ion()
+			plt.show()			
+
 
 		else:
 			fig = plt.figure()
@@ -169,9 +225,10 @@ class rfClass:
 			ax.pcolormesh(self.X, self.Y, bMode, cmap = 'bone')
 			ax.invert_yaxis()
 			plt.show()
+			return
 			
 
-	def setRoiFixedSize(self, windowX = 4, windowY = 4):
+	def SetRoiFixedSize(self, windowX = 4, windowY = 4):
 		'''The Roi size here is given in mm'''
 
 		
@@ -241,7 +298,7 @@ class rfClass:
 		pyplot.show()
 
 
-	def setRoi(self):
+	def SetRoi(self):
 		"""
 		Do a mouseclick somewhere, move the mouse to some destination, release
 		the button.  This class gives click- and release-events and also draws
@@ -319,7 +376,7 @@ class rfClass:
 		plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
 		plt.show()
 
-	def createRoiArray(self):
+	def CreateRoiArray(self):
 #		#Check that a Data set has been loaded	
 		#could be image sequence or just a 2-D image
 		self.readFrame(0)
@@ -355,7 +412,7 @@ class rfClass:
 
 		return bMode
 
-	def showRoiImage(self):
+	def ShowRoiImage(self):
 		bMode = self.createRoiArray()	
 		#import matplotlib and create plot
 		import matplotlib.pyplot as plt
@@ -368,7 +425,7 @@ class rfClass:
 
 
 
-	def saveRoiImage(self, fname):
+	def SaveRoiImage(self, fname):
 		bMode = self.createRoiArray()	
 		#import matplotlib and create plot
 		import matplotlib.pyplot as plt
@@ -380,7 +437,7 @@ class rfClass:
 		plt.savefig(fname)
 		plt.close()
 
-	def createStrainImage(self, preFrameNo, postFrameNo):
+	def CreateStrainImage(self, preFrameNo, postFrameNo):
 		'''Takes two frame numbers as input and produces displacement quality and strain images for plotting'''
 		self.preFrame = preFrameNo
 		from numpy import arange, meshgrid, zeros
@@ -448,12 +505,12 @@ class rfClass:
 		self.fovStrainY = self.deltaY*self.strain.shape[0] 
 
 
-	def deleteStrainImage(self):
+	def DeleteStrainImage(self):
 		if not self.strain == None:
 			self.strain = None
 
 
-	def plotBmodeStrain(self):
+	def PlotBmodeStrain(self):
 		'''Plot b-mode and strain images together, saves them to output directory.'''
 
 		self.readFrame(self.preFrame)	
@@ -477,7 +534,7 @@ class rfClass:
 		plt.imshow(self.strain, extent = [0, self.fovStrainX, self.fovStrainY, 0] )
 		plt.show()
 
-	def writeBmodeStrain(self, fname):
+	def WriteBmodeStrain(self, fname):
 		self.readFrame(self.preFrame)
 		temp = self.data
 
@@ -499,7 +556,7 @@ class rfClass:
 		plt.savefig(fname)
 		plt.close()
 
-	def createWriteStrainItk(self, preFrameNo, fname):
+	def CreateWriteStrainItk(self, preFrameNo, fname):
 		'''This function calculates strain for a fiven frame number and writes the file to fname + .mhd'''
 		import itk, numpy
 	        converter = itk.PyBuffer[itk.Image.F2]	

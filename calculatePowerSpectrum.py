@@ -2,11 +2,11 @@ from rfData import rfClass
 
 class powerSpectrum(rfClass):
 
-	def calculatePowerSpectrum(self, show = True):
+	def CalculatePowerSpectrum(self, show = True):
 		'''Give a power spectrum for the RF data using Welch's method'''
 
 
-		from numpy import fft,zeros, arange
+		from numpy import fft,zeros, arange,log10
 		from scipy import signal
 		from matplotlib import pyplot
 		
@@ -33,16 +33,39 @@ class powerSpectrum(rfClass):
 		freqRange = deltaF*welchSub
 		self.spectrumFrequencies = arange(0, freqRange, deltaF)/1E6
 		self.spectrum = tempAverage
+		specTemp = 20*log10(self.spectrum + 1E-5)
+		specTemp -= specTemp.max()
 		if show:
 			#show power spectrum
 			fig = pyplot.figure() 
 			ax = fig.add_subplot(1,1,1)
-			ax.plot(self.spectrumFrequencies[0:welchSub/2], self.spectrum[0:welchSub/2])
-			ax.set_title('Spectrum magnitude versus Frequency (MHz)')
+			ax.plot(self.spectrumFrequencies[0:welchSub/2], specTemp[0:welchSub/2])
+			ax.set_title('Spectrum magnitude(dB) versus Frequency (MHz)')
 			pyplot.show()
 
 
-	def writeSpectrumToFile(self, fname, title = ' '):
+	def Calculate_minus3dB_bandwidth(self):
+		from numpy import log10	
+		self.spectrum = 20*log10(self.spectrum)
+		self.spectrum = self.spectrum - self.spectrum.max()
+		self.minus3dBLow = 0
+		self.minus3dBHigh = len(self.spectrum)-1
+		
+		currentDiffLow = 999.
+		currentDiffHigh = 999.
+
+		halfF = len(self.spectrumFrequencies)/2
+		for f in range(halfF/2):
+			if abs(self.spectrum[f] - (-3)) < currentDiffLow:
+				currentDiffLow = abs(self.spectrum[f] - (-3))
+				self.minus3dBLow = f
+			if abs(self.spectrum[-1-halfF-f] - (-3)) < currentDiffHigh:
+				currentDiffHigh = abs(self.spectrum[-1-f] - (-3) )
+				self.minus3dBHigh = -1-halfF-f
+
+
+		
+	def WriteSpectrumToFile(self, fname, title = ' '):
 		'''Write the power spectrum and the analysis region to file'''
 
 		from numpy import fft,zeros, arange
@@ -96,36 +119,88 @@ class powerSpectrum(rfClass):
 		pyplot.show()	
 	
 
-	def calculateGeneralizedSpectrum(self, show = True):
+	def ComputeCollapsedAverageImage(self):
+		'''Using 6 mm by 4 mm windows, create a collapsed average image.'''
+
+		import numpy
+		self.readFrame()
+		#figure out how many 6 mm by 4 mm windows fit into image		
+		overlap = .75
+		windowX =int( 4/self.deltaX)
+		windowY =int( 4/self.deltaY)
+		
+		#make the windows odd numbers
+		if not windowY%2:
+			windowY +=1
+
+		if not windowX%2:
+			windowX +=1
+
+		halfY = (windowY -1)/2
+		halfX = (windowX -1)/2
+			
+		#overlap the windows axially by 50%
+		stepY = int(  (1-overlap)*windowY )
+		startY = halfY
+		stopY = self.points - halfY - 1
+		winCenterY = range(startY, stopY, stepY)
+		numY = len(winCenterY)
+		
+		startX = halfX
+		stopX = self.lines - halfX - 1
+		winCenterX = range(startX, stopX)
+		numX = len(winCenterX)
+		
+		self.CAimage = numpy.zeros( (numY, numX) )
+		
+		for y in range(numY):
+			for x in range(numX):
+				tempRegion = self.data[winCenterY[y] - halfY:winCenterY[y] + halfY + 1, winCenterX[x] - halfX:winCenterX[x] + halfX + 1]
+				self.calculateGeneralizedSpectrum(region = tempRegion, show = False)
+				self.CAimage[y,x] = self.areaUnderCA
+
+		numpy.save('CAimage', self.CAimage)	
+
+
+	def CalculateGeneralizedSpectrum(self, region = None, show = True):
 		'''First pick a point from the image using ginput.  Then, compute the
 		generalized spectrum around this region.  Use the generalized spectrum to compute
 		the collapsed average.'''
-		from numpy import zeros, arange, fft, exp, pi, outer, log10, sqrt
+		from numpy import zeros, arange, fft, exp, pi, outer, log10, sqrt, ndarray
 		from matplotlib import pyplot
 
-		self.yLow = min(rfClass.roiY)
-		self.yHigh = max(rfClass.roiY)
-		self.xLow = min(rfClass.roiX)
-		self.xHigh = max(rfClass.roiX)
-
-		self.readFrame()
-		#cut window size in half
-		points = (self.yHigh - self.yLow)/2
-		print "Points used is equal to: " +  str(points)
+		if not type(region) == ndarray:
+			self.yLow = min(rfClass.roiY)
+			self.yHigh = max(rfClass.roiY)
+			self.xLow = min(rfClass.roiX)
+			self.xHigh = max(rfClass.roiX)
+			self.readFrame()
+			#make window size an even number 
+			points = (self.yHigh - self.yLow)/2
+			if points%2:
+				points +=1
+			maxDataWindow =self.data[self.yLow:self.yLow + 2*points, self.xLow:self.xHigh]
+		
+		else:
+			points = region.shape[0]
+			if points%2:
+				points +=1
+			maxDataWindow = region[0:points, :]
+			points /= 2
+		
+			
 		#Work out the delay between the first point and the maximum intensity point
-		dataWindow = self.data[self.yLow:self.yLow + points, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[0:points, :]		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
 		tempLines = dataWindow.shape[1]
-		print "The number of lines used is equal to: " + str(tempLines)
 		
 		#Work out frequency spacing for DFT points
 		deltaF = self.fs/dataWindow.shape[0]
 		freq = arange(0, self.fs, deltaF)
 		delta = outer(freq,maxPointDelay)
 		phase = exp(1j*2*pi*delta)	
-		print "Computing normalized GS"
 		GS = zeros( (tempPoints, tempPoints) ) + 1j*zeros( (tempPoints, tempPoints) ) 
 		for f1 in range(len(freq)):
 			for f2 in range(len(freq)):
@@ -137,9 +212,8 @@ class powerSpectrum(rfClass):
 						outerProd /= abs(outerProd)
 					GS[f1,f2] += outerProd
 
-		print "GS estimate computed over first time interval"
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = self.data[self.yLow + len(freq)/2: self.yLow + len(freq)/2 + tempPoints, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[points/2: points/2 + points, :]
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -164,7 +238,7 @@ class powerSpectrum(rfClass):
 
 
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = self.data[self.yLow + len(freq): self.yLow + len(freq) + tempPoints, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[points:2*points, :]		
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -193,7 +267,7 @@ class powerSpectrum(rfClass):
 		######################################################
 		print "Computing standard deviation of GS estimates"
 		#Work out the delay between the first point and the maximum intensity point
-		dataWindow = self.data[self.yLow:self.yLow + points, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[0:points,:]
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData = fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
@@ -219,7 +293,7 @@ class powerSpectrum(rfClass):
 
 
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = self.data[self.yLow + len(freq)/2: self.yLow + len(freq)/2 + tempPoints, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[points/2: points/2 + points, :]
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -245,7 +319,7 @@ class powerSpectrum(rfClass):
 
 
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = self.data[self.yLow + len(freq): self.yLow + len(freq) + tempPoints, self.xLow:self.xHigh]
+		dataWindow = maxDataWindow[points:2*points, :]		
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -306,14 +380,24 @@ class powerSpectrum(rfClass):
 			for f2 in range(fIndexMin, fIndexMax):
 				d = abs(f2-f1)		
 				if d < numFreq:
-					CA[d] = GS[f1,f2]
+					CA[d] += GS[f1,f2]
 					counts[d] += 1
 
 
 		self.CA = abs(CA)/counts
 		self.freqDiff = arange(0, numFreq)*deltaF/1.E6
+
+		#normalize to value at origin
+		self.CA = self.CA/self.CA[0]
 		if show:
 			fig3 = pyplot.figure()
 			ax3 = fig3.add_subplot(1,1,1)
 			ax3.plot(self.freqDiff,self.CA)
 			pyplot.show()
+
+		#compute area under the collapsed average curve
+		self.areaUnderCA = 0.
+
+		for point in range(len(self.CA) - 1):
+			self.areaUnderCA += (self.CA[point] + self.CA[point + 1])/2*deltaF/1.E6
+
