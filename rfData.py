@@ -391,8 +391,6 @@ class rfClass:
 		from numpy import arange,zeros		
 		from scipy import interpolate
 	
-		import pdb
-		pdb.set_trace()	
 		#work out size of region in B-mode image
 		bModeSizeY = spacing[0]*(paramImage.shape[0] - 1) + 1
 		bModeSizeX = spacing[1]*(paramImage.shape[1] - 1) + 1
