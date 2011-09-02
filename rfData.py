@@ -192,7 +192,7 @@ class rfClass:
 		
 		rfClass.bModeImageCount +=1	
 		#Check that a Data set has been loaded	
-		self.readFrame(frameNo)
+		self.ReadFrame(frameNo)
 		temp = self.data
 
 
@@ -236,7 +236,7 @@ class rfClass:
 		from scipy.signal import hilbert
 		from numpy import log10, arange
 		
-		self.readFrame()
+		self.ReadFrame()
 		yExtent = self.deltaY*self.points
 		xExtent = self.deltaX*self.lines
 		bmode = log10(abs(hilbert(self.data, axis=0) ) )
@@ -360,7 +360,7 @@ class rfClass:
 			
 		
 		#could be image sequence or just a 2-D image
-		self.readFrame(0)
+		self.ReadFrame(0)
 		temp = self.data
 
 
@@ -376,10 +376,76 @@ class rfClass:
 		plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
 		plt.show()
 
+
+	def CreateParametricImage(self, paramImage, origin, spacing, colormap = 'jet'):
+		'''Input:
+		   paramImage: The image to place within the B-mode image
+		   origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
+		   		[row, column]
+		   spacing:  The number of B-mode pixels separating paramImage's pixels
+		   		[rows, columns]
+		   colormap:  The colormap of the parametric image
+		   
+		 '''	
+
+		from numpy import arange,zeros		
+		from scipy import interpolate
+	
+		import pdb
+		pdb.set_trace()	
+		#work out size of region in B-mode image
+		bModeSizeY = spacing[0]*(paramImage.shape[0] - 1) + 1
+		bModeSizeX = spacing[1]*(paramImage.shape[1] - 1) + 1
+
+		paramImageUpInY = zeros( (bModeSizeY, paramImage.shape[1] ) )
+		paramImageUp = zeros( (bModeSizeY, bModeSizeX) )
+					 
+		#Upsample strain image to same spacing as B-mode image.
+		paramRfYIndexes = arange(origin[0], origin[0] + spacing[0]*paramImage.shape[0], spacing[0] )
+		paramRfYIndexesNew = arange(origin[0], origin[0] + spacing[0]*(paramImage.shape[0]-1) + 1 )
+		paramRfXIndexes = arange(origin[1], origin[1] + spacing[1]*paramImage.shape[1], spacing[1] )
+		paramRfXIndexesNew = arange(origin[1], origin[1] + spacing[1]*(paramImage.shape[1]-1) + 1 )
+
+		#use old image to interpolate
+		for x in range(paramImage.shape[1]):	
+			interp = interpolate.interp1d(paramRfYIndexes, paramImage[:,x] )
+			paramImageUpInY[:, x] = interp(paramRfYIndexesNew )
+
+		
+		for y in range(paramImageUp.shape[0]):	
+			interp = interpolate.interp1d(paramRfXIndexes, paramImageUpInY[y,:] )
+			paramImageUp[y, :] = interp( paramRfXIndexesNew )
+
+
+
+		'''Convert array containing param values to RGBALpha array'''
+		from matplotlib import cm
+
+		palette = cm.ScalarMappable()
+		palette.set_cmap(colormap)
+		tempIm = palette.to_rgba(paramImageUp)
+
+		'''Create B-mode image'''	
+		from scipy.signal import hilbert
+		from numpy import log10
+		bMode = log10(abs(hilbert(self.data, axis = 0)))
+		bMode = bMode - bMode.max()
+		bMode[bMode < -3]  = -3
+		palette = cm.ScalarMappable()
+		palette.set_cmap('gray')
+		bMode = palette.to_rgba(bMode)
+
+
+		bMode[origin[0]:origin[0] + tempIm.shape[0],origin[1]:origin[1] + tempIm.shape[1], :] = tempIm
+	
+	
+		return bMode
+		
+				
 	def CreateRoiArray(self):
 #		#Check that a Data set has been loaded	
 		#could be image sequence or just a 2-D image
-		self.readFrame(0)
+		self.ReadFrame(0)
 		temp = self.data
 
 
@@ -444,9 +510,9 @@ class rfClass:
 		from scipy import interpolate
 		from blockMatch import blockMatchClass
 	
-		self.readFrame(preFrameNo)
+		self.ReadFrame(preFrameNo)
 		pre = self.data.copy()	
-		self.readFrame(postFrameNo)
+		self.ReadFrame(postFrameNo)
 		post = self.data.copy()	
 		blockMatchInstance = blockMatchClass(pre, post, self.params)
 		
@@ -513,7 +579,7 @@ class rfClass:
 	def PlotBmodeStrain(self):
 		'''Plot b-mode and strain images together, saves them to output directory.'''
 
-		self.readFrame(self.preFrame)	
+		self.ReadFrame(self.preFrame)	
 		temp = self.data
 		#import signal processing modules and generate Numpy array
 		from scipy.signal import hilbert
@@ -535,7 +601,7 @@ class rfClass:
 		plt.show()
 
 	def WriteBmodeStrain(self, fname):
-		self.readFrame(self.preFrame)
+		self.ReadFrame(self.preFrame)
 		temp = self.data
 
 		#import signal processing modules and generate Numpy array
@@ -566,10 +632,10 @@ class rfClass:
 		from scipy import interpolate
 		from blockMatch import blockMatchClass
 	
-		self.readFrame(preFrameNo)
+		self.ReadFrame(preFrameNo)
 		pre = self.data.copy()	
 		postFrameNo = preFrameNo + 1
-		self.readFrame(postFrameNo)
+		self.ReadFrame(postFrameNo)
 		post = self.data.copy()	
 		blockMatchInstance = blockMatchClass(pre, post, self.params)
 		

@@ -10,7 +10,7 @@ class powerSpectrum(rfClass):
 		from scipy import signal
 		from matplotlib import pyplot
 		
-		self.readFrame()
+		self.ReadFrame()
 		#going to use half the window size for Welch method
 		windowY = max(rfClass.roiY) - min(rfClass.roiY)
 		welchSub = windowY/2
@@ -72,7 +72,7 @@ class powerSpectrum(rfClass):
 		from scipy import signal
 		from matplotlib import pyplot
 		
-		self.readFrame()
+		self.ReadFrame()
 		#going to use half the window size for Welch method
 		windowY = max(rfClass.roiY) - min(rfClass.roiY)
 		welchSub = windowY/2
@@ -120,14 +120,15 @@ class powerSpectrum(rfClass):
 	
 
 	def ComputeCollapsedAverageImage(self):
-		'''Using 6 mm by 4 mm windows, create a collapsed average image.'''
+		'''Using 4 mm by 4 mm windows, create a collapsed average image.'''
 
 		import numpy
-		self.readFrame()
+		self.ReadFrame()
 		#figure out how many 6 mm by 4 mm windows fit into image		
-		overlap = .75
-		windowX =int( 4/self.deltaX)
-		windowY =int( 4/self.deltaY)
+		overlapY = .75
+		overlapX = .75
+		windowX =int( 8/self.deltaX)
+		windowY =int( 8/self.deltaY)
 		
 		#make the windows odd numbers
 		if not windowY%2:
@@ -140,57 +141,70 @@ class powerSpectrum(rfClass):
 		halfX = (windowX -1)/2
 			
 		#overlap the windows axially by 50%
-		stepY = int(  (1-overlap)*windowY )
+		stepY = int(  (1-overlapY)*windowY )
 		startY = halfY
 		stopY = self.points - halfY - 1
 		winCenterY = range(startY, stopY, stepY)
 		numY = len(winCenterY)
-		
+	
+		stepX = int( (1-overlapX)*windowX )	
 		startX = halfX
 		stopX = self.lines - halfX - 1
-		winCenterX = range(startX, stopX)
+		winCenterX = range(startX, stopX, stepX)
 		numX = len(winCenterX)
 		
-		self.CAimage = numpy.zeros( (numY, numX) )
-		
+		self.caImage = numpy.zeros( (numY, numX) )
+		self.caStepX = stepX
+		self.caStepY = stepY
+			
+		#work out time to compute a point, then spit out time to calculate image
+		from time import time
+		y = x = 0
+		t1 = time()
+		tempRegion = self.data[winCenterY[y] - halfY:winCenterY[y] + halfY + 1, winCenterX[x] - halfX:winCenterX[x] + halfX + 1]
+		self.CalculateGeneralizedSpectrum(region = tempRegion, show = False)
+		t2 = time()
+		print "Elapsed time was: " + str(t2-t1) + "seconds"
+		print "Estimate time to compute an entire image is: "  + str( (t2-t1)*numY*numX/3600. ) + " hours"
+				
 		for y in range(numY):
 			for x in range(numX):
 				tempRegion = self.data[winCenterY[y] - halfY:winCenterY[y] + halfY + 1, winCenterX[x] - halfX:winCenterX[x] + halfX + 1]
-				self.calculateGeneralizedSpectrum(region = tempRegion, show = False)
-				self.CAimage[y,x] = self.areaUnderCA
-
-		numpy.save('CAimage', self.CAimage)	
-
-
+				self.CalculateGeneralizedSpectrum(region = tempRegion, show = False)
+				self.caImage[y,x] = self.areaUnderCA
+		
+			
+		self.caImage = self.CreateParametricImage(self.caImage,[startY, startX], [self.caStepY, self.caStepX] )	
+	
+	
 	def CalculateGeneralizedSpectrum(self, region = None, show = True):
 		'''First pick a point from the image using ginput.  Then, compute the
 		generalized spectrum around this region.  Use the generalized spectrum to compute
 		the collapsed average.'''
-		from numpy import zeros, arange, fft, exp, pi, outer, log10, sqrt, ndarray
+		from numpy import zeros, arange, fft, exp, pi, outer, log10, sqrt, ndarray, nan
 		from matplotlib import pyplot
+		from scipy.signal import hamming
 
 		if not type(region) == ndarray:
 			self.yLow = min(rfClass.roiY)
 			self.yHigh = max(rfClass.roiY)
 			self.xLow = min(rfClass.roiX)
 			self.xHigh = max(rfClass.roiX)
-			self.readFrame()
+			self.ReadFrame()
 			#make window size an even number 
 			points = (self.yHigh - self.yLow)/2
-			if points%2:
-				points +=1
+			points -= points%4
 			maxDataWindow =self.data[self.yLow:self.yLow + 2*points, self.xLow:self.xHigh]
 		
 		else:
 			points = region.shape[0]
-			if points%2:
-				points +=1
+			points -= points%4
 			maxDataWindow = region[0:points, :]
 			points /= 2
 		
-			
 		#Work out the delay between the first point and the maximum intensity point
-		dataWindow = maxDataWindow[0:points, :]		
+		windowFunc = hamming(points).reshape(points,1)
+		dataWindow = maxDataWindow[0:points, :]*windowFunc	
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
@@ -201,19 +215,17 @@ class powerSpectrum(rfClass):
 		freq = arange(0, self.fs, deltaF)
 		delta = outer(freq,maxPointDelay)
 		phase = exp(1j*2*pi*delta)	
-		GS = zeros( (tempPoints, tempPoints) ) + 1j*zeros( (tempPoints, tempPoints) ) 
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-					GS[f1,f2] += outerProd
+		gsList1 = []
+		
+		for l in range(tempLines):
+			outerProd = outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
+			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
+			outerProd /= abs(outerProd)
+			outerProd[outerProd == nan] = 0. + 1j*0.
+			gsList1.append(outerProd.copy() )
 
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = maxDataWindow[points/2: points/2 + points, :]
+		dataWindow = maxDataWindow[points/2: points/2 + points, :]*windowFunc
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -225,20 +237,18 @@ class powerSpectrum(rfClass):
 		freq = arange(0, self.fs, deltaF)
 		delta = outer(freq,maxPointDelay)
 		phase = exp(1j*2*pi*delta)	
-		
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-					GS[f1,f2] += outerProd
+	
+		gsList2 = []	
+		for l in range(tempLines):
+			outerProd = outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
+			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
+			outerProd /= abs(outerProd)
+			outerProd[outerProd == nan] = 0. + 1j*0.
+			gsList2.append(outerProd)
 
 
 		#step ahead by 50% the window size and add in more contributions
-		dataWindow = maxDataWindow[points:2*points, :]		
+		dataWindow = maxDataWindow[points:2*points, :]*windowFunc		
 		
 		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		fourierData =fft.fft(dataWindow, axis = 0)
@@ -250,100 +260,26 @@ class powerSpectrum(rfClass):
 		freq = arange(0, self.fs, deltaF)
 		delta = outer(freq,maxPointDelay)
 		phase = exp(1j*2*pi*delta)	
-		
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-					GS[f1,f2] += outerProd
+	
+		gsList3 = []	
+		for l in range(tempLines):
+			outerProd = outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
+			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
+			outerProd /= abs(outerProd)
+			outerProd[outerProd == nan] = 0. + 1j*0.
+			gsList3.append(outerProd)
 
+		GS = zeros( (points, points) ) + 1j*zeros( (points, points) )
+		for l in range(tempLines):
+			GS += gsList1[l] + gsList2[l] + gsList3[l]
 
 		######################################################
 		########scale GS by its standard deviation############
 		######################################################
-		print "Computing standard deviation of GS estimates"
-		#Work out the delay between the first point and the maximum intensity point
-		dataWindow = maxDataWindow[0:points,:]
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData = fft.fft(dataWindow, axis = 0)
-		tempPoints = dataWindow.shape[0]
-		tempLines = dataWindow.shape[1]
-
-		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq = arange(0, self.fs, deltaF)
-		delta = outer(freq,maxPointDelay)
-		phase = exp(1j*2*pi*delta)
-		
-		SL = zeros( (tempPoints, tempPoints) ) + 1j*zeros( (tempPoints, tempPoints) ) 
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-
-					SL[f1,f2] += (GS[f1,f2] - outerProd)**2
-
-
-		#step ahead by 50% the window size and add in more contributions
-		dataWindow = maxDataWindow[points/2: points/2 + points, :]
-		
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData =fft.fft(dataWindow, axis = 0)
-		tempPoints = dataWindow.shape[0]
-		tempLines = dataWindow.shape[1]
-
-		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq = arange(0, self.fs, deltaF)
-		delta = outer(freq,maxPointDelay)
-		phase = exp(1j*2*pi*delta)
-		
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-
-					SL[f1,f2] += (GS[f1,f2] - outerProd)**2
-
-
-		#step ahead by 50% the window size and add in more contributions
-		dataWindow = maxDataWindow[points:2*points, :]		
-		
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData =fft.fft(dataWindow, axis = 0)
-		tempPoints = dataWindow.shape[0]
-		tempLines = dataWindow.shape[1]
-
-		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq = arange(0, self.fs, deltaF)
-		delta = outer(freq,maxPointDelay)
-		phase = exp(1j*2*pi*delta)
-		
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):
-				for l in range(tempLines):
-					outerProd = fourierData[f1,l]*phase[f1,l]*fourierData[f2,l].conjugate()*phase[f2,l].conjugate()
-					if abs(outerProd) < 1E-8:
-						outerProd = 0. + 1j*0.
-					else:
-						outerProd /= abs(outerProd)
-
-					SL[f1,f2] += (GS[f1,f2] - outerProd)**2
-
-
+		SL = zeros( (points, points) ) + 1j*zeros( (points, points) ) 
+	
+		for l in range(tempLines):
+			SL += (GS - gsList1[l])**2 + (GS - gsList2[l])**2 + (GS - gsList3[l])**2  
 		
 		SL = sqrt( (1/(tempPoints*tempLines*3 - 1) )*SL )
 
@@ -372,7 +308,6 @@ class powerSpectrum(rfClass):
 		########################################
 		########COMPUTE COLLAPSED AVERAGE#######
 		########################################
-		print "Computing collapsed average"
 		numFreq = len(range(fIndexMin, fIndexMax))	
 		counts = zeros(numFreq)
 		CA = zeros(numFreq) + 1j*zeros(numFreq)
