@@ -1,9 +1,6 @@
 #first define the class unique priority queue
 from Queue import PriorityQueue
 import heapq
-import cv
-import numpy as np
-import pdb
 
 
 class UniquePriorityQueue(PriorityQueue):
@@ -44,8 +41,11 @@ class blockMatchingParameters():
 		self.strainWindow = 13
 
 
+import cv
+import numpy as np
 class blockMatchClass():
-	
+
+
 	def __init__(self, pre, post, params = None):
 		self.pre = pre
 		self.post = post
