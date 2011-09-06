@@ -1,4 +1,4 @@
-class rfClass:
+class rfClass(object):
 
 	roiX = None
 	roiY = None
@@ -390,7 +390,9 @@ class rfClass:
 
 		from numpy import arange,zeros		
 		from scipy import interpolate
-	
+
+		self.paramValMax = paramImage.max()
+		self.paramValMin = paramImage.min()	
 		#work out size of region in B-mode image
 		bModeSizeY = spacing[0]*(paramImage.shape[0] - 1) + 1
 		bModeSizeX = spacing[1]*(paramImage.shape[1] - 1) + 1
