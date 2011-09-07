@@ -22,7 +22,7 @@ class attenuation(rfClass):
 		self.windowYmm = 4
 		self.windowXmm = 4
 		self.overlapY = .75
-		self.overlapX = .75
+		self.overlapX = 1
 		
 		self.windowX =int( self.windowXmm/self.deltaX)
 		self.windowY =int( self.windowYmm/self.deltaY)
@@ -43,7 +43,9 @@ class attenuation(rfClass):
 		stopY = self.points - self.halfY - 1
 		self.winCenterY = range(startY, stopY, stepY)
 	
-		stepX = int( (1-self.overlapX)*self.windowX )	
+		stepX = int( (1-self.overlapX)*self.windowX )
+		if stepX < 1:
+			stepX = 1	
 		startX =self.halfX
 		stopX = self.lines - self.halfX - 1
 		self.winCenterX = range(startX, stopX, stepX)
@@ -118,7 +120,6 @@ class attenuation(rfClass):
 			spec /= spec.max()	
 			#fit a Gaussian to the power spectrum
 			[p1, success] = optimize.leastsq(errfunc, p0, args = (freq,spec[0:len(spec)/2]) )
-			print p1
 			self.centerFreq += p1[0]
 			self.bw += p1[1]
 			count += 1
@@ -131,7 +132,7 @@ class attenuation(rfClass):
 		pyplot.plot(freq, self.gaussianFilter )
 		pyplot.show()
 		
-	def CalculateAttenuationImage(self):
+	def CalculateAttenuationImage(self, convertToRgb = True):
 		'''Loop through the image and calculate the spectral shift at each depth.'''
 
 		import numpy
@@ -153,8 +154,10 @@ class attenuation(rfClass):
 		
 		#convert slope value to attenuation value
 		self.attenImage *= -8.686/(4*self.bw)
-		self.attenImage += self.betaRef	
-		self.attenImage = self.CreateParametricImage(self.attenImage,[startY, startX], [stepY, stepX] )
+		self.attenImage += self.betaRef
+			
+		if convertToRgb:
+			self.attenImage = self.CreateParametricImage(self.attenImage,[startY, startX], [stepY, stepX] )
 
 
 
