@@ -1,4 +1,5 @@
 from rfData import rfClass
+from faranScattering import faranBsc
 
 class attenuation(rfClass):
 
@@ -16,7 +17,9 @@ class attenuation(rfClass):
 			print "Error.  Sample and reference images must be the same size. \n\ "
 			return
 
-		self.lsqFitPoints = 12
+		#make this number odd
+		self.lsqFitPoints = 13
+		self.halfLsq = self.lsqFitPoints//2
 		self.betaRef = refAttenuation
 		#get window sizes and overlap
 		self.windowYmm = 4
@@ -26,6 +29,7 @@ class attenuation(rfClass):
 		
 		self.windowX =int( self.windowXmm/self.deltaX)
 		self.windowY =int( self.windowYmm/self.deltaY)
+		self.windowY -= self.windowY%4
 		
 		#make the windows odd numbers
 		if not self.windowY%2:
@@ -34,14 +38,17 @@ class attenuation(rfClass):
 		if not self.windowX%2:
 			self.windowX +=1
 
-		self.halfY = (self.windowY -1)/2
-		self.halfX = (self.windowX -1)/2
+		self.halfY = self.windowY//2
+		self.halfX = self.windowX//2
 			
 		#overlap the windows axially by 50%
 		stepY = int(  (1-self.overlapY)*self.windowY )
 		startY = self.halfY
 		stopY = self.points - self.halfY - 1
-		self.winCenterY = range(startY, stopY, stepY)
+		self.winCenterYpriorLsq = range(startY, stopY, stepY)
+		
+		#cutoff some more points because of least squares fitting	
+		self.winCenterY= self.winCenterYpriorLsq[self.halfLsq:-self.halfLsq]	
 	
 		stepX = int( (1-self.overlapX)*self.windowX )
 		if stepX < 1:
@@ -49,10 +56,21 @@ class attenuation(rfClass):
 		startX =self.halfX
 		stopX = self.lines - self.halfX - 1
 		self.winCenterX = range(startX, stopX, stepX)
-		
+
+		##Within each window a Welch-Bartlett style spectrum will be estimated		
+		##Figure out the number of points used in an individual FFT based on
+		##a 50% overlap and rounding the window size to be divisible by 4
+		self.bartlettY = self.windowY//2
+		self.spectrumFreqStep = self.fs/self.barlettY
 
 	def CalculateSpectrumWelch(self, region):
-		'''Return the power spectrum of a sample region'''
+		'''Return the power spectrum of a region based on a Welch-Bartlett method.
+		The window used in each FFT is half the length of the total window.
+		The step size is half the size of the FFT window.
+		Average over A-lines.
+
+		This function assumes the size of the region is divisible by 4.
+		'''
 		from scipy.signal import hamming
 		import numpy	
 		points = region.shape[0]
@@ -131,15 +149,25 @@ class attenuation(rfClass):
 		self.gaussianFilter = fitfunc([self.centerFreq, self.bw],freq)
 		pyplot.plot(freq, self.gaussianFilter )
 		pyplot.show()
+	
+		#work out frequency indexes I'll use to work with spectrums
+		self.spectrumLowCutoff = int( (self.centerFreq - self.bw)/self.spectrumFreqStep )
+		self.spectrumHighCutoff	= int( (self.centerFreq + self.bw)/self.spectrumFreqStep )
+	
 		
 	def CalculateAttenuationImage(self, convertToRgb = True):
-		'''Loop through the image and calculate the spectral shift at each depth.'''
+		'''Loop through the image and calculate the spectral shift at each depth.
+		Perform the operation 1 A-line at a time to avoid repeating calculations.
+		Input:
+		convertToRgb:  A switch to make the output an RGB image that I can plot directly, but
+		I'll lose the attenuation slope values.
+		'''
 
 		import numpy
 		self.ReadFrame()
 		self.refRf.ReadFrame()
 		self.FindCenterFrequency()	
-		numY = len(self.winCenterY) - self.lsqFitPoints
+		numY = len(self.winCenterY)
 		numX = len(self.winCenterX)
 		self.attenImage = numpy.zeros( (numY, numX) )	
 		startY = self.winCenterY[self.lsqFitPoints//2] 
@@ -169,6 +197,11 @@ class attenuation(rfClass):
 
 
 	def CalculateAttenuationAlongBeamLine(self, sampleRegion, refRegion):
+		'''Input:
+		sampleRegion:  RF data from the sample
+		refRegion:  RF data from the reference phantom
+
+		'''
 		import numpy
 		from matplotlib import pyplot
 		from scipy.signal import hamming
@@ -184,7 +217,7 @@ class attenuation(rfClass):
 
 		spectrumList = []
 
-		for y in self.winCenterY:
+		for y in self.winCenterYpriorLsq:
 			#get first spectrum for x-correlation
 			maxDataWindow = sampleRegion[y - points:y + points, :]
 			fftListSample = []
@@ -233,6 +266,7 @@ class attenuation(rfClass):
 		resultCv = numpy.zeros( (2*pointsToCut + 1, 1 ) )  
 		resultCv = cv.fromarray(numpy.float32(resultCv) )
 
+		#Compute spectral shift at adjacent points
 		for y in range(len(self.winCenterY) - 1):
 			gfr0 = spectrumList[y]
 			gfr0[gfr0 == numpy.nan] = 0
