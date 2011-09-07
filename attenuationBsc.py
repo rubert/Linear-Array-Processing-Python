@@ -148,10 +148,17 @@ class attenuation(rfClass):
 		stepX = self.winCenterX[1] - self.winCenterX[0]
 			
 		for x in range(numX):
+			if not x:
+				from time import time
+				t1 = time()
 			tempRegionSample = self.data[:, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
 			tempRegionRef = self.refRf.data[:, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
 			self.attenImage[:, x] = self.CalculateAttenuationAlongBeamLine(tempRegionSample, tempRegionRef)
-		
+			if not x:
+				t2 = time()
+				print "Time for a beamline was" + str(t2 - t1) + " seconds"
+				print "Time for all lines is: " + str( (t2-t1)*numX/60 ) + "minutes"
+					
 		#convert slope value to attenuation value
 		self.attenImage *= -8.686/(4*self.bw)
 		self.attenImage += self.betaRef
@@ -255,6 +262,5 @@ class attenuation(rfClass):
 			b = numpy.array(shift[y: y + self.lsqFitPoints])
 			out = numpy.linalg.lstsq(A, b)
 			slope[y] = out[0][0]
-			print slope[y]
 
 		return slope

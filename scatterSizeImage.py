@@ -1,7 +1,7 @@
 from rfData import rfClass
 from attenuationBsc import attenuation
 
-class scattererSize(attenuation):
+class scattererSizeClass(attenuation):
 
 
 	def ComputeBscImage(self):
@@ -9,7 +9,7 @@ class scattererSize(attenuation):
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
 		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.'''
 
-		self.CalculateAttenuationImage(self, convertToRgb = False):
+		self.CalculateAttenuationImage(self, convertToRgb = False)
 		numY = len(self.winCenterY)
 		numX = len(self.winCenterX)
 		self.scatSizeImage = numpy.zeros( (numY, numX) )	
