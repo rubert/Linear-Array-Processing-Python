@@ -4,7 +4,7 @@ from faranScattering import faranBsc
 
 class scattererSizeClass(attenuation):
 			
-	def ComputeBscImage(self, convertToRgb = True):
+	def ComputeBscImage(self, convertToRgb = True, vmin = None, vmax = None):
 		'''First compute the attenuation image, then use the attenuation image and the
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
 		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.'''
@@ -30,6 +30,11 @@ class scattererSizeClass(attenuation):
 			
 	
 		#convert scatterer size image to RGB parametric image	
+		if vmin:
+			self.scatSizeImage[self.scatSizeImage < vmin] = vmin
+
+		if vmax:
+			self.scatSizeImage[self.scatSizeImage > vmax] = vmax
 
 		if convertToRgb:
 			self.scatSizeImage = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
@@ -111,7 +116,7 @@ class scattererSizeClass(attenuation):
 		freq = numpy.arange(0, len(rpmSpectrum)*deltaF, deltaF)
 
 		#work out attenuation difference by assu
-		rpmSpectrum*=numpy.exp(-4*freq*attenuationDifference)
+		#rpmSpectrum*=numpy.exp(-4*freq*attenuationDifference)
 		diffs = self.ComputeBscCoefficients(rpmSpectrum[self.spectrumLowCutoff:self.spectrumHighCutoff] )		
 		
 		return self.bscFaranSizes[diffs.argmin()]	

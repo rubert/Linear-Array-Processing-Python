@@ -24,7 +24,7 @@ class attenuation(rfClass):
 		#get window sizes and overlap
 		self.windowYmm = 4
 		self.windowXmm = 4
-		self.overlapY = .75
+		self.overlapY = .85
 		self.overlapX = 1
 		
 		self.windowX =int( self.windowXmm/self.deltaX)
