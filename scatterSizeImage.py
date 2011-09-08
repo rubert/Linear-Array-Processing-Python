@@ -4,29 +4,35 @@ from faranScattering import faranBsc
 
 class scattererSizeClass(attenuation):
 			
-	def ComputeBscImage(self):
+	def ComputeBscImage(self, convertToRgb = True):
 		'''First compute the attenuation image, then use the attenuation image and the
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
 		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.'''
+		
+		import numpy
 
 		self.CalculateAttenuationImage(convertToRgb = False)
 		self.InitializeTheoreticalBackscatter()
 		numY = len(self.winCenterY)
 		numX = len(self.winCenterX)
 		self.scatSizeImage = numpy.zeros( (numY, numX) )	
-		startY = self.winCenterY[self.lsqFitPoints//2] 
+		startY = self.winCenterY[0] 
 		startX = self.winCenterX[0]
 		stepY = self.winCenterY[1] - self.winCenterY[0]
 		stepX = self.winCenterX[1] - self.winCenterX[0]
 		
-		for y in self.winCenterY:
-			attenuationDifference = self.deltaY*10**2*y*self.attenImage[0:y,:].mean()	
-			for x in self.winCenterX:
-				tempRegionSample = self.data[y - self.halfY:y + self.halfY + 1, x - self.halfX:x + self.halfX + 1]
-				tempRegionRef = self.refRf.data[y - self.halfY:y + self.halfY + 1, x - self.halfX:x + self.halfX + 1]
-				self.scatSizeImage[y, x] = self.CalculateScatSizeOnePoint(tempRegionSample, tempRegionRef)
+		for yParam,yRf in enumerate(self.winCenterY):
+			for xParam, xRf in enumerate(self.winCenterX):
+				attenuationDifference = (self.deltaY*yRf)/10*self.attenImage[0:1+yParam,xParam].mean()	
+				tempRegionSample = self.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
+				tempRegionRef = self.refRf.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
+				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, tempRegionRef, attenuationDifference)
 			
-		
+	
+		#convert scatterer size image to RGB parametric image	
+
+		if convertToRgb:
+			self.scatSizeImage = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
 
 	def InitializeTheoreticalBackscatter(self):
 		'''Within the transducer bandwidth calculate the backscatter coefficients over a set of scatter size.
@@ -34,21 +40,30 @@ class scattererSizeClass(attenuation):
 		scatterer sizes.'''
 		#for scatter sizes between 10 and 100 micrometers
 		import numpy
+
+		#I get a lot of divide by zeros when computing the theoretical backscatter
+		#coefficients
+
+		oldWarningSettings = numpy.seterr(all = 'ignore')
 		instance = faranBsc()
-		self.bscFrequencies =numpy.arange(self.spectrumLowCutoff, self.spectrumHighCutoff)*self.spectrumFreqStep
 		self.bscFaranSizes = numpy.arange(10,100,1)
 		self.bscCurveFaranList =[]
 		for d in self.bscFaranSizes:
-			tempFreq, tempBsc = instance.calculateBSC(self, 1, .1, 12)
-			self.bscCurveFaranList.append( tempBsc)
+			tempBsc = instance.calculateBSC(self.spectrumInTxdcerBandwidth, d)
+			self.bscCurveFaranList.append( tempBsc.copy())
 
+		numpy.seterr(**oldWarningSettings) 
 
 	def CalculateScatSizeOnePoint(self, sampleRegion, refRegion, attenuationDifference):
+		'''This function calculates power spectrum ratios and multiplies by an attenuation 
+		difference with a known reference phantom.  The units on the attenuation difference are in 
+		dB/(cm MHz)'''
 		import numpy
 		from matplotlib import pyplot
 		from scipy.signal import hamming
 		import cv
 		
+		attenuationDifference /= 8.686 #convert to Nepers
 		#find out number of points in list
 		points = 2*self.halfY
 		points -= points%4
@@ -97,9 +112,9 @@ class scattererSizeClass(attenuation):
 
 		#work out attenuation difference by assu
 		rpmSpectrum*=numpy.exp(-4*freq*attenuationDifference)
-		diffs, size = self.ComputeBscCoefficients(rpmSpectrum[self.spectrumLowCutoff:self.spectrumHighCutoff] )		
+		diffs = self.ComputeBscCoefficients(rpmSpectrum[self.spectrumLowCutoff:self.spectrumHighCutoff] )		
 		
-		return size[diffs.argmin()]	
+		return self.bscFaranSizes[diffs.argmin()]	
 		
 	def ComputeBscCoefficients(self, BSCs):
 		'''Compute a theoretical backscatter curve over the transducer bandwidth.  Find the 
@@ -111,10 +126,11 @@ class scattererSizeClass(attenuation):
 			
 		Output:  Error and corresponding scatterer sizes'''
 		import numpy
-		for count,s in enumerate(self.bscFaranSizes):
+		mmse = numpy.zeros( len(self.bscCurveFaranList) )
+		for count,BSCt in enumerate(self.bscCurveFaranList):
 
-			BSCt = bscCurveFaranList[count]
-			psi = 10*numpy.log(BSCs) - 10*numpy.log(BSCt)
+			#Added small number to avoid taking logarithm of zero
+			psi = 10*numpy.log(BSCs) - 10*numpy.log(BSCt )
 			psiHat = psi.mean()
 			mmse[count] = ((psi - psiHat)**2).mean()
 

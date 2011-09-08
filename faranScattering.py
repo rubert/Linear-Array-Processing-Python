@@ -1,17 +1,12 @@
 class faranBsc(object):
 
 
-	def calculateBSC(self, initFreq, stepFreq, endFreq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 100):
+	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 100):
 		'''a function to calculate normalized BSC curve from Tony's Faran code. Assume Tony's 
 		%code only calculates 180 degree k3absscatlength values.
 		%
 		%Input:
-		%k3absscatlength: the result from Tony's Faran code
-		%x3: ka values, it's an array, should be same as the parameters used in 
-		%       Tony's result
-		%initFreq: the initial frequency (in unit of MHz) to calculate BSC curve
-		%stepFreq: the step frequency (MHz)
-		%endFreq: the ending frequency (in unit of MHz) to calculate BSC curve
+		%freq:  The frequency over which I would like backscatter coefficients calculated in MHz
 		%d: scatterer size, diameter, not radius (in unit of micro meter)
 		%
 		%output:
@@ -21,16 +16,16 @@ class faranBsc(object):
 		%Hairong Shi, 05/15/2006
 		'''
 		import numpy
+		freq = freq*10E6
 		#Work out ka values for frequency range and scatterer diameter
-		sos=1540.;   #%speed of sound in surrounding media
-		freq=numpy.arange(initFreq, endFreq,stepFreq)*1e6;   #change unit to Hz
-		k=2*numpy.pi*freq/sos;
-		ka=k*d/2*1e-6;
+		sos=1540.   #%speed of sound in surrounding media
+		k=2*numpy.pi*freq/sos
+		ka=k*d/2*1e-6
 		#get scattering length and convert to backscatter coefficient	
 		kabsscatlength = self.sphere(ka,sosm,soss,sosshear,rhom,rhos,maxang,maxn)
-		BSCCurve=(kabsscatlength/k)**2;
+		BSCCurve=(kabsscatlength/k)**2
 
-		return freq, BSCCurve
+		return BSCCurve
 
 	def sphere(self,ka,sosm,soss,sosshear,rhom,rhos,maxang,maxn):
 
@@ -76,51 +71,51 @@ class faranBsc(object):
 		import numpy
 		from scipy.special import lpmn
 		#initialization
-		theta= 180;
+		theta= 180
 		x3=ka
-		x2=x3*sosm/sosshear;  #ka value for shear waves in sphere
-		x1=x3*sosm/soss;  #ka value for compressional waves in sphere
+		x2=x3*sosm/sosshear  #ka value for shear waves in sphere
+		x1=x3*sosm/soss  #ka value for compressional waves in sphere
 
 		#main loop over order n
 		coeff = numpy.zeros((maxn + 1, len(x3)) ) + 1j*numpy.zeros((maxn + 1, len(x3)))
 		for n in range(0,maxn + 1):  	    
 		    #spherical bessel functions
-		    jx1=self.sphbess(n,x1);
-		    jx2=self.sphbess(n,x2);
-		    jx3=self.sphbess(n,x3);
+		    jx1=self.sphbess(n,x1)
+		    jx2=self.sphbess(n,x2)
+		    jx3=self.sphbess(n,x3)
 		    
 		    #spherical neumann functions
-		    nx3=self.sphneumm(n,x3);
+		    nx3=self.sphneumm(n,x3)
 		    
 		    #derivatives of spherical bessel and neumann functions
-		    jpx3=n/(2*n+1.)*self.sphbess(n-1,x3)-(n+1)/(2*n+1.)*self.sphbess(n+1,x3);
-		    npx3=n/(2*n+1.)*self.sphneumm(n-1,x3)-(n+1)/(2*n+1.)*self.sphneumm(n+1,x3);
-		    jpx1=n/(2*n+1.)*self.sphbess(n-1,x1)-(n+1)/(2*n+1.)*self.sphbess(n+1,x1);
-		    jpx2=n/(2*n+1.)*self.sphbess(n-1,x2)-(n+1)/(2*n+1.)*self.sphbess(n+1,x2);
+		    jpx3=n/(2*n+1.)*self.sphbess(n-1,x3)-(n+1)/(2*n+1.)*self.sphbess(n+1,x3)
+		    npx3=n/(2*n+1.)*self.sphneumm(n-1,x3)-(n+1)/(2*n+1.)*self.sphneumm(n+1,x3)
+		    jpx1=n/(2*n+1.)*self.sphbess(n-1,x1)-(n+1)/(2*n+1.)*self.sphbess(n+1,x1)
+		    jpx2=n/(2*n+1.)*self.sphbess(n-1,x2)-(n+1)/(2*n+1.)*self.sphbess(n+1,x2)
 		    
-		    tandeltax3=-jx3/nx3;
-		    tanalphax3=-x3*jpx3/jx3;
-		    tanbetax3=-x3*npx3/nx3;
-		    tanalphax1=-x1*jpx1/jx1;
-		    tanalphax2=-x2*jpx2/jx2;
+		    tandeltax3=-jx3/nx3
+		    tanalphax3=-x3*jpx3/jx3
+		    tanbetax3=-x3*npx3/nx3
+		    tanalphax1=-x1*jpx1/jx1
+		    tanalphax2=-x2*jpx2/jx2
 		    
 		    #calculation of tanxsi and coefficient
-		    term1=tanalphax1/(tanalphax1+1);
-		    term2=(n**2+n)/(n**2+n-1-0.5*x2**2+tanalphax2);
-		    term3=(n**2+n-0.5*x2**2+2*tanalphax1)/(tanalphax1+1);
-		    term4=((n**2+n)*(tanalphax2+1))/(n**2+n-1-0.5*x2**2+tanalphax2);
-		    tanxsi=-x2**2/2*(term1-term2)/(term3-term4);
+		    term1=tanalphax1/(tanalphax1+1)
+		    term2=(n**2+n)/(n**2+n-1-0.5*x2**2+tanalphax2)
+		    term3=(n**2+n-0.5*x2**2+2*tanalphax1)/(tanalphax1+1)
+		    term4=((n**2+n)*(tanalphax2+1))/(n**2+n-1-0.5*x2**2+tanalphax2)
+		    tanxsi=-x2**2/2*(term1-term2)/(term3-term4)
 		    
-		    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3);
-		    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2);
+		    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3)
+		    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2)
 		   
 		#legendre polynomials
-		temp, deriv=lpmn(n,n,numpy.cos(numpy.pi/180*theta));
+		temp, deriv=lpmn(n,n,numpy.cos(numpy.pi/180*theta))
 		#taking the first row is effectively taking m = 0
-		legend=temp[0,:].reshape((1,maxn + 1));
+		legend=temp[0,:].reshape((1,maxn + 1))
 		
 		#matrix mult completes summation over n
-		k3absscatlength=abs(numpy.dot(legend,coeff));
+		k3absscatlength=abs(numpy.dot(legend,coeff))
 		output = k3absscatlength.reshape( len(x3) )
 		output[output == numpy.nan] = 0
 		return output
@@ -131,7 +126,7 @@ class faranBsc(object):
 		#vector
 		import numpy
 		from scipy.special import yv
-		sphneumm=numpy.sqrt(numpy.pi/2./vect)*yv(order+0.5,vect);
+		sphneumm=numpy.sqrt(numpy.pi/2./vect)*yv(order+0.5,vect)
 		return sphneumm
 			
 	def sphbess(self,order,vect):
@@ -140,5 +135,5 @@ class faranBsc(object):
 		import numpy
 		from scipy.special import jv
 
-		sphbess=numpy.sqrt(numpy.pi/2./vect)*jv(order+0.5,vect);
+		sphbess=numpy.sqrt(numpy.pi/2./vect)*jv(order+0.5,vect)
 		return sphbess

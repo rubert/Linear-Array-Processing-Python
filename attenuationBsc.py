@@ -29,9 +29,8 @@ class attenuation(rfClass):
 		
 		self.windowX =int( self.windowXmm/self.deltaX)
 		self.windowY =int( self.windowYmm/self.deltaY)
-		self.windowY -= self.windowY%4
 		
-		#make the windows odd numbers
+		#make the windows odd numbers for the sake of calculating their centers
 		if not self.windowY%2:
 			self.windowY +=1
 
@@ -48,7 +47,7 @@ class attenuation(rfClass):
 		self.winCenterYpriorLsq = range(startY, stopY, stepY)
 		
 		#cutoff some more points because of least squares fitting	
-		self.winCenterY= self.winCenterYpriorLsq[self.halfLsq:-self.halfLsq]	
+		self.winCenterY= self.winCenterYpriorLsq[self.halfLsq + 1:-(self.halfLsq + 1)]	
 	
 		stepX = int( (1-self.overlapX)*self.windowX )
 		if stepX < 1:
@@ -60,8 +59,9 @@ class attenuation(rfClass):
 		##Within each window a Welch-Bartlett style spectrum will be estimated		
 		##Figure out the number of points used in an individual FFT based on
 		##a 50% overlap and rounding the window size to be divisible by 4
+		self.windowY -= self.windowY%4
 		self.bartlettY = self.windowY//2
-		self.spectrumFreqStep = self.fs/self.barlettY
+		self.spectrumFreqStep = self.fs/self.bartlettY
 
 	def CalculateSpectrumWelch(self, region):
 		'''Return the power spectrum of a region based on a Welch-Bartlett method.
@@ -151,9 +151,10 @@ class attenuation(rfClass):
 		pyplot.show()
 	
 		#work out frequency indexes I'll use to work with spectrums
-		self.spectrumLowCutoff = int( (self.centerFreq - self.bw)/self.spectrumFreqStep )
-		self.spectrumHighCutoff	= int( (self.centerFreq + self.bw)/self.spectrumFreqStep )
-	
+		freqStepMHz = self.spectrumFreqStep/10**6
+		self.spectrumLowCutoff = int( (self.centerFreq - self.bw)/freqStepMHz )
+		self.spectrumHighCutoff	= int( (self.centerFreq + self.bw)/freqStepMHz )
+		self.spectrumInTxdcerBandwidth = numpy.arange(self.spectrumLowCutoff, self.spectrumHighCutoff)*freqStepMHz	
 		
 	def CalculateAttenuationImage(self, convertToRgb = True):
 		'''Loop through the image and calculate the spectral shift at each depth.
@@ -170,11 +171,11 @@ class attenuation(rfClass):
 		numY = len(self.winCenterY)
 		numX = len(self.winCenterX)
 		self.attenImage = numpy.zeros( (numY, numX) )	
-		startY = self.winCenterY[self.lsqFitPoints//2] 
+		startY = self.winCenterY[0] 
 		startX = self.winCenterX[0]
 		stepY = self.winCenterY[1] - self.winCenterY[0]
 		stepX = self.winCenterX[1] - self.winCenterX[0]
-			
+
 		for x in range(numX):
 			if not x:
 				from time import time
@@ -258,16 +259,16 @@ class attenuation(rfClass):
 		deltaF = ((self.fs/2)/10**6)/len(gfr)
 		pointsToCut = int( 1/deltaF)
 
-		shift = [0]*(len(self.winCenterY) - 1)
+		shift = [0]*(len(self.winCenterYpriorLsq) - 1)
 
-		slope = numpy.zeros( len(self.winCenterY) - self.lsqFitPoints)
+		slope = numpy.zeros( len(self.winCenterY))
 		#compute spectral cross correlation over 4 windows and perform
 		#least squares fitting
 		resultCv = numpy.zeros( (2*pointsToCut + 1, 1 ) )  
 		resultCv = cv.fromarray(numpy.float32(resultCv) )
 
 		#Compute spectral shift at adjacent points
-		for y in range(len(self.winCenterY) - 1):
+		for y in range(len(self.winCenterYpriorLsq) - 1):
 			gfr0 = spectrumList[y]
 			gfr0[gfr0 == numpy.nan] = 0
 			gfr0 = gfr0.reshape( (len(gfr0), 1) )
@@ -282,8 +283,8 @@ class attenuation(rfClass):
 			maxShift = resultNp.argmax()
 			maxShiftFreq = (maxShift - pointsToCut)*deltaF
 			shift[y] = maxShiftFreq 
-	
-		for y in range(len(self.winCenterY) - self.lsqFitPoints): 	
+
+		for y in range(len(self.winCenterY)): 	
 			#perform linear least squares fit to line
 			#want to solve equation y = mx + b for m
 			#[x1   1      [m     = [y1
