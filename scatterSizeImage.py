@@ -49,7 +49,6 @@ class scattererSizeClass(attenuation):
 		#I get a lot of divide by zeros when computing the theoretical backscatter
 		#coefficients
 
-		oldWarningSettings = numpy.seterr(all = 'ignore')
 		instance = faranBsc()
 		self.bscFaranSizes = numpy.arange(10,200,1)
 		self.bscCurveFaranList =[]
@@ -85,15 +84,14 @@ class scattererSizeClass(attenuation):
 			
 		Output:  Error and corresponding scatterer sizes'''
 		import numpy
+		
+		
 		mmse = numpy.zeros( len(self.bscCurveFaranList) )
 		for count,BSCt in enumerate(self.bscCurveFaranList):
 
 			#Added small number to avoid taking logarithm of zero
-			psi = 10*numpy.log(BSCs) - 10*numpy.log(BSCt )
+			psi = 10*numpy.log(BSCs) - 10*numpy.log(BSCt)
 			psiHat = psi.mean()
 			mmse[count] = ((psi - psiHat)**2).mean()
 
-		from matplotlib import pyplot
-		import pdb
-		pdb.set_trace()
 		return mmse

@@ -71,6 +71,8 @@ class faranBsc(object):
 		'''
 		import numpy
 		from scipy.special import lpmn
+		oldWarningSettings = numpy.seterr(invalid = 'raise')
+		
 		#initialization
 		theta= 180
 		x3=ka
@@ -80,36 +82,40 @@ class faranBsc(object):
 		#main loop over order n
 		coeff = numpy.zeros((maxn + 1, len(x3)) ) + 1j*numpy.zeros((maxn + 1, len(x3)))
 		for n in range(0,maxn + 1):  	    
-		    #spherical bessel functions
-		    jx1=self.sphbess(n,x1)
-		    jx2=self.sphbess(n,x2)
-		    jx3=self.sphbess(n,x3)
-		    
-		    #spherical neumann functions
-		    nx3=self.sphneumm(n,x3)
-		    
-		    #derivatives of spherical bessel and neumann functions
-		    jpx3=n/(2*n+1.)*self.sphbess(n-1,x3)-(n+1)/(2*n+1.)*self.sphbess(n+1,x3)
-		    npx3=n/(2*n+1.)*self.sphneumm(n-1,x3)-(n+1)/(2*n+1.)*self.sphneumm(n+1,x3)
-		    jpx1=n/(2*n+1.)*self.sphbess(n-1,x1)-(n+1)/(2*n+1.)*self.sphbess(n+1,x1)
-		    jpx2=n/(2*n+1.)*self.sphbess(n-1,x2)-(n+1)/(2*n+1.)*self.sphbess(n+1,x2)
-		    
-		    tandeltax3=-jx3/nx3
-		    tanalphax3=-x3*jpx3/jx3
-		    tanbetax3=-x3*npx3/nx3
-		    tanalphax1=-x1*jpx1/jx1
-		    tanalphax2=-x2*jpx2/jx2
-		    
-		    #calculation of tanxsi and coefficient
-		    term1=tanalphax1/(tanalphax1+1)
-		    term2=(n**2+n)/(n**2+n-1-0.5*x2**2+tanalphax2)
-		    term3=(n**2+n-0.5*x2**2+2*tanalphax1)/(tanalphax1+1)
-		    term4=((n**2+n)*(tanalphax2+1))/(n**2+n-1-0.5*x2**2+tanalphax2)
-		    tanxsi=-x2**2/2*(term1-term2)/(term3-term4)
-		    
-		    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3)
-		    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2)
-		   
+		    try: 
+			    #spherical bessel functions
+			    jx1=self.sphbess(n,x1)
+			    jx2=self.sphbess(n,x2)
+			    jx3=self.sphbess(n,x3)
+			    
+			    #spherical neumann functions
+			    nx3=self.sphneumm(n,x3)
+			    
+			    #derivatives of spherical bessel and neumann functions
+			    jpx3=n/(2*n+1.)*self.sphbess(n-1,x3)-(n+1)/(2*n+1.)*self.sphbess(n+1,x3)
+			    npx3=n/(2*n+1.)*self.sphneumm(n-1,x3)-(n+1)/(2*n+1.)*self.sphneumm(n+1,x3)
+			    jpx1=n/(2*n+1.)*self.sphbess(n-1,x1)-(n+1)/(2*n+1.)*self.sphbess(n+1,x1)
+			    jpx2=n/(2*n+1.)*self.sphbess(n-1,x2)-(n+1)/(2*n+1.)*self.sphbess(n+1,x2)
+			    
+			    tandeltax3=-jx3/nx3
+			    tanalphax3=-x3*jpx3/jx3
+			    tanbetax3=-x3*npx3/nx3
+			    tanalphax1=-x1*jpx1/jx1
+			    tanalphax2=-x2*jpx2/jx2
+			    
+			    #calculation of tanxsi and coefficient
+			    term1=tanalphax1/(tanalphax1+1)
+			    term2=(n**2+n)/(n**2+n-1-0.5*x2**2+tanalphax2)
+			    term3=(n**2+n-0.5*x2**2+2*tanalphax1)/(tanalphax1+1)
+			    term4=((n**2+n)*(tanalphax2+1))/(n**2+n-1-0.5*x2**2+tanalphax2)
+			    tanxsi=-x2**2/2*(term1-term2)/(term3-term4)
+			    
+			    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3)
+			    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2)
+			  
+		    except(FloatingPointError):
+			    coeff[n,:] = 0 
+		
 		#legendre polynomials
 		temp, deriv=lpmn(n,n,numpy.cos(numpy.pi/180*theta))
 		#taking the first row is effectively taking m = 0
