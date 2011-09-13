@@ -13,29 +13,28 @@ class scattererSizeClass(attenuation):
 
 		self.CalculateAttenuationImage(convertToRgb = False)
 		self.InitializeTheoreticalBackscatter()
-		numY = len(self.winCenterY)
-		numX = len(self.winCenterX)
+		numY = len(self.attenCenterY)
+		numX = len(self.blockCenterX)
 		self.scatSizeImage = numpy.zeros( (numY, numX) )	
-		startY = self.winCenterY[0] 
-		startX = self.winCenterX[0]
-		stepY = self.winCenterY[1] - self.winCenterY[0]
-		stepX = self.winCenterX[1] - self.winCenterX[0]
+		startY = self.attenCenterY[0] 
+		startX = self.blockCenterX[0]
+		stepY = self.attenCenterY[1] - self.attenCenterY[0]
+		stepX = self.blockCenterX[1] - self.blockCenterX[0]
 		
-		for yParam,yRf in enumerate(self.winCenterY):
-			for xParam, xRf in enumerate(self.winCenterX):
-				attenuationDifference = (self.deltaY*yRf)/10*self.attenImage[0:1+yParam,xParam].mean()	
+		for yParam,yRf in enumerate(self.attenCenterY):
+			for xParam, xRf in enumerate(self.blockCenterX):
+				betaDiff = self.attenuationImage[0:yParam + 1,xParam].mean()	
+				depthCm = (self.deltaY*yRf)/10
 				tempRegionSample = self.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
 				tempRegionRef = self.refRf.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
-				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, tempRegionRef, attenuationDifference)
+				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, tempRegionRef, betaDiff, depthCm)
 			
 	
 		#convert scatterer size image to RGB parametric image	
 		if vmin:
 			self.scatSizeImage[self.scatSizeImage < vmin] = vmin
-
 		if vmax:
 			self.scatSizeImage[self.scatSizeImage > vmax] = vmax
-
 		if convertToRgb:
 			self.scatSizeImage = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
 
@@ -45,79 +44,34 @@ class scattererSizeClass(attenuation):
 		scatterer sizes.'''
 		#for scatter sizes between 10 and 100 micrometers
 		import numpy
+		faranInstance =  faranBsc()
 
 		#I get a lot of divide by zeros when computing the theoretical backscatter
 		#coefficients
 
 		oldWarningSettings = numpy.seterr(all = 'ignore')
 		instance = faranBsc()
-		self.bscFaranSizes = numpy.arange(10,100,1)
+		self.bscFaranSizes = numpy.arange(10,200,1)
 		self.bscCurveFaranList =[]
 		for d in self.bscFaranSizes:
-			tempBsc = instance.calculateBSC(self.spectrumInTxdcerBandwidth, d)
+			tempBsc = faranInstance.calculateBSC(self.spectrumFreq, d)
 			self.bscCurveFaranList.append( tempBsc.copy())
 
 		numpy.seterr(**oldWarningSettings) 
 
-	def CalculateScatSizeOnePoint(self, sampleRegion, refRegion, attenuationDifference):
+	def CalculateScatSizeOnePoint(self, sampleRegion, refRegion, betaDiff, depthCm):
 		'''This function calculates power spectrum ratios and multiplies by an attenuation 
 		difference with a known reference phantom.  The units on the attenuation difference are in 
 		dB/(cm MHz)'''
 		import numpy
-		from matplotlib import pyplot
-		from scipy.signal import hamming
-		import cv
 		
-		attenuationDifference /= 8.686 #convert to Nepers
-		#find out number of points in list
-		points = 2*self.halfY
-		points -= points%4
-		points /= 2
+		betaDiff /= 8.686 #convert to Nepers
 		
-		#compute 3 fourier transforms and average them	
-		windowFunc = hamming(points).reshape(points,1)
-
-		#get first spectrum for x-correlation
-		maxDataWindow = sampleRegion[0:2*points]
-		fftListSample = []
-		for f in range(3):
-			dataWindow = maxDataWindow[(points/2)*f:(points/2)*f + points, :]*windowFunc	
-			fourierData = numpy.fft.fft(dataWindow, axis = 0)
-			fftListSample.append( fourierData.copy() )
-	
-		fftSample = numpy.zeros( fftListSample[0].shape)
-		for f in range(3):
-			fftSample += abs(fftListSample[f])
-
-		fftSample = fftSample.mean(axis = 1)
-			
-		#######REFERENCE REGION#######
-		maxDataWindow = refRegion[0:2*points]
-
-		#compute 3 fourier transforms and average them	
-		fftListRef = []
-		for f in range(3):
-			dataWindow = maxDataWindow[(points/2)*f:(points/2)*f + points, :]*windowFunc	
-			fourierData =numpy.fft.fft(dataWindow, axis = 0)
-			fftListRef.append(fourierData.copy() )
-
-
-		fftRef = numpy.zeros( fftListRef[0].shape)	
-		for f in range(3):
-			fftRef += abs(fftListRef[f])
-
-		fftRef = fftRef.mean(axis = 1)
-		
-		#work out number of freq points equal to .5 MHz
+		fftSample = self.CalculateSpectrumBlock(sampleRegion)
+		fftRef = self.CalculateSpectrumBlock(refRegion)				
 		###Divide sample spectrum by reference spectrum to perform deconvolution
-		rpmSpectrum = fftSample[0:len(fftSample)//2]/fftRef[0:len(fftSample)//2]
-		
-		deltaF = ((self.fs)/10**6)/(2*len(rpmSpectrum) )
-		freq = numpy.arange(0, len(rpmSpectrum)*deltaF, deltaF)
-
-		#work out attenuation difference by assu
-		#rpmSpectrum*=numpy.exp(-4*freq*attenuationDifference)
-		diffs = self.ComputeBscCoefficients(rpmSpectrum[self.spectrumLowCutoff:self.spectrumHighCutoff] )		
+		rpmSpectrum = fftSample/fftRef*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
+		diffs = self.ComputeBscCoefficients(rpmSpectrum )		
 		
 		return self.bscFaranSizes[diffs.argmin()]	
 		
@@ -139,4 +93,7 @@ class scattererSizeClass(attenuation):
 			psiHat = psi.mean()
 			mmse[count] = ((psi - psiHat)**2).mean()
 
+		from matplotlib import pyplot
+		import pdb
+		pdb.set_trace()
 		return mmse

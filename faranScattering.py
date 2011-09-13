@@ -10,17 +10,16 @@ class faranBsc(object):
 		%d: scatterer size, diameter, not radius (in unit of micro meter)
 		%
 		%output:
-		%freq: frequency range (Hz)
-		%BSCCurve: the BSC curve, in unit of 1/m/Sr
+		BSCCurve: the BSC curve, in unit of 1/m/Sr
 		%
 		%Hairong Shi, 05/15/2006
 		'''
 		import numpy
-		freq = freq*10E6
+		freq = freq*1.E6
 		#Work out ka values for frequency range and scatterer diameter
 		sos=1540.   #%speed of sound in surrounding media
 		k=2*numpy.pi*freq/sos
-		ka=k*d/2*1e-6
+		ka=k*d/2.*1e-6
 		#get scattering length and convert to backscatter coefficient	
 		kabsscatlength = self.sphere(ka,sosm,soss,sosshear,rhom,rhos,maxang,maxn)
 		BSCCurve=(kabsscatlength/k)**2
@@ -30,25 +29,27 @@ class faranBsc(object):
 	def sphere(self,ka,sosm,soss,sosshear,rhom,rhos,maxang,maxn):
 
 		'''a function which calculates scattering cross sections for spheres
-		#according to Faran's theory; the output is a size of x3 vector giving
-		#the scattering length at 180 degrees
-		#and entries correspond to different values
-		#of ka (step size and max value of ka can be changed by manipulating the
-		#initialization of x3); note that the output is the absolute value of the
-		#scattering length (i.e. square root of the differential scattering cross
-		#section) times the wavenumber in the host medium (output is therefore
-		#unitless)
+		according to Faran's theory; the output is a size of x3 vector giving
+		the scattering length at 180 degrees
+		and entries correspond to different values
+		of ka (step size and max value of ka can be changed by manipulating the
+		initialization of x3); note that the output is the absolute value of the
+		scattering length (i.e. square root of the differential scattering cross
+		section) times the wavenumber in the host medium (output is therefore
+		unitless)
 
-		%sosm = speed of sound in host medium (fluid)
-		%soss = speed of sound in sphere
-		%sosshear = speed of sound for shear waves in sphere  (if poisson's ratio
-		%(sigma)is available, sosshear=soss*sqrt((1-2*sigma)/2/(1-sigma)))
-		%rhom = host medium density
-		%rhos = sphere density
-		%maxang = maximum angle (in degrees) for which to calculate a cross
-		%section
-		%maxn = number of terms to include in the summation (higher number =
-		%greater accuracy but more computation time)
+		ka = an array containing the (wavenumber)*(scatter radius) values
+		over which scattering length will be calculated.
+		sosm = speed of sound in host medium (fluid)
+		soss = speed of sound in sphere
+		sosshear = speed of sound for shear waves in sphere  (if poisson's ratio
+		(sigma)is available, sosshear=soss*sqrt((1-2*sigma)/2/(1-sigma)))
+		rhom = host medium density
+		rhos = sphere density
+		maxang = maximum angle (in degrees) for which to calculate a cross
+		section
+		maxn = number of terms to include in the summation (higher number =
+		greater accuracy but more computation time)
 
 		%UNITS ARE OF NO CONSEQUENCE AS LONG AS THEY ARE CONSISTENT, I.E.
 		%SPEEDS OF SOUND MUST HAVE THE SAME UNITS AND DENSITIES MUST HAVE THE SAME

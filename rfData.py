@@ -103,7 +103,7 @@ class rfClass(object):
 			self.fovY = self.deltaY*self.points
 						
 			
-	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, Bw = .5):
+	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, sigma = 1.0E6):
 		'''Read a single frame from the input file, the method varies depending on the file type that
 		was read in.  This can handle linear array data from the Seimens S2000 recorded in either mode
 		or the Ultrasonix scanner recorded using the clinical software.
@@ -154,7 +154,7 @@ class rfClass(object):
 		if self.dataType == 'sim':
 					
 			self.centerFreq = centerFreq #Hz
-			self.Bw = Bw
+			self.sigma = sigma
 			f = open(self.fname, 'rb')
 			
 			import numpy as np
@@ -170,19 +170,23 @@ class rfClass(object):
 			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
 					
 			import math
-			alpha = 4*math.log10(2)/(self.centerFreq*self.centerFreq*self.Bw*self.Bw)
 			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
-			self.pulseSpectrum = 1e6*np.exp(-alpha* (f - self.centerFreq)*(f - self.centerFreq) )
+			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
 			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
+	
 			self.data = np.fft.ifft(temp,axis=0 ).real	
+
+
 
 	def MakeBmodeImage(self, frameNo = 0):
 		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
 		frames from a data set."""
 		
 		rfClass.bModeImageCount +=1	
-		#Check that a Data set has been loaded	
-		self.ReadFrame(frameNo)
+		#Check that a Data set has been loaded
+		import types
+		if type(self.data) == types.NoneType:	
+			self.ReadFrame(frameNo)
 		temp = self.data
 
 
@@ -193,30 +197,15 @@ class rfClass(object):
 		bMode = bMode - bMode.max()
 
 		#import matplotlib and create plot
-		import matplotlib
-		matplotlib.use('Qt4Agg')
 		import matplotlib.pyplot as plt
+		import matplotlib.cm as cm
+		fig = plt.figure()
+		fig.canvas.set_window_title("B-mode image " + str(rfClass.bModeImageCount) )
+		ax = fig.add_subplot(1,1,1)
+		ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+		plt.show()			
 
-		if not self.isSectorData:
-			import matplotlib.cm as cm
-			fig = plt.figure()
-			fig.canvas.set_window_title("B-mode image " + str(rfClass.bModeImageCount) )
-			ax = fig.add_subplot(1,1,1)
-			ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-			plt.ion()
-			plt.show()			
-
-
-		else:
-			fig = plt.figure()
-			ax = fig.add_subplot(111)
-			#ax.invert_yaxis()
-			bMode[bMode < -3] = -3	
-			ax.pcolormesh(self.X, self.Y, bMode, cmap = 'bone')
-			ax.invert_yaxis()
-			plt.show()
-			return
-			
+		
 
 	def SetRoiFixedSize(self, windowX = 4, windowY = 4):
 		'''The Roi size here is given in mm'''
@@ -226,7 +215,9 @@ class rfClass(object):
 		from scipy.signal import hilbert
 		from numpy import log10, arange
 		
-		self.ReadFrame()
+		import types
+		if type(self.data) == types.NoneType:	
+			self.ReadFrame()
 		yExtent = self.deltaY*self.points
 		xExtent = self.deltaX*self.lines
 		bmode = log10(abs(hilbert(self.data, axis=0) ) )
@@ -350,7 +341,9 @@ class rfClass(object):
 			
 		
 		#could be image sequence or just a 2-D image
-		self.ReadFrame(0)
+		import types
+		if type(self.data) == types.NoneType:	
+			self.ReadFrame(0)
 		temp = self.data
 
 
@@ -425,7 +418,6 @@ class rfClass(object):
 		palette.set_cmap('gray')
 		bMode = palette.to_rgba(bMode)
 
-
 		bMode[origin[0]:origin[0] + tempIm.shape[0],origin[1]:origin[1] + tempIm.shape[1], :] = tempIm
 	
 	
@@ -435,7 +427,9 @@ class rfClass(object):
 	def CreateRoiArray(self):
 #		#Check that a Data set has been loaded	
 		#could be image sequence or just a 2-D image
-		self.ReadFrame(0)
+		import types
+		if type(self.data) == types.NoneType:	
+			self.ReadFrame(0)
 		temp = self.data
 
 
