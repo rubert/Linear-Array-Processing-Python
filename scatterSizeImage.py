@@ -56,7 +56,6 @@ class scattererSizeClass(attenuation):
 			tempBsc = faranInstance.calculateBSC(self.spectrumFreq, d)
 			self.bscCurveFaranList.append( tempBsc.copy())
 
-		numpy.seterr(**oldWarningSettings) 
 
 	def CalculateScatSizeOnePoint(self, sampleRegion, refRegion, betaDiff, depthCm):
 		'''This function calculates power spectrum ratios and multiplies by an attenuation 
@@ -64,12 +63,15 @@ class scattererSizeClass(attenuation):
 		dB/(cm MHz)'''
 		import numpy
 		
-		betaDiff /= 8.686 #convert to Nepers
+		betaDiff /= 8.686
 		
 		fftSample = self.CalculateSpectrumBlock(sampleRegion)
 		fftRef = self.CalculateSpectrumBlock(refRegion)				
 		###Divide sample spectrum by reference spectrum to perform deconvolution
 		rpmSpectrum = fftSample/fftRef*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
+		from matplotlib import pyplot
+		import pdb
+		pdb.set_trace()
 		diffs = self.ComputeBscCoefficients(rpmSpectrum )		
 		
 		return self.bscFaranSizes[diffs.argmin()]	
@@ -85,6 +87,7 @@ class scattererSizeClass(attenuation):
 		Output:  Error and corresponding scatterer sizes'''
 		import numpy
 		
+		oldWarningSettings = numpy.seterr(all = 'ignore')
 		
 		mmse = numpy.zeros( len(self.bscCurveFaranList) )
 		for count,BSCt in enumerate(self.bscCurveFaranList):
@@ -94,4 +97,6 @@ class scattererSizeClass(attenuation):
 			psiHat = psi.mean()
 			mmse[count] = ((psi - psiHat)**2).mean()
 
+		mmse[numpy.isnan(mmse)] = 1.e15
+		numpy.seterr(**oldWarningSettings)
 		return mmse

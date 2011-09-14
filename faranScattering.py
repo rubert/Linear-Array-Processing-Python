@@ -1,7 +1,7 @@
 class faranBsc(object):
 
 
-	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 100):
+	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 30):
 		'''a function to calculate normalized BSC curve from Tony's Faran code. Assume Tony's 
 		%code only calculates 180 degree k3absscatlength values.
 		%
@@ -71,7 +71,7 @@ class faranBsc(object):
 		'''
 		import numpy
 		from scipy.special import lpmn
-		oldWarningSettings = numpy.seterr(invalid = 'raise')
+		oldWarningSettings = numpy.seterr(all = 'ignore')
 		
 		#initialization
 		theta= 180
@@ -82,7 +82,6 @@ class faranBsc(object):
 		#main loop over order n
 		coeff = numpy.zeros((maxn + 1, len(x3)) ) + 1j*numpy.zeros((maxn + 1, len(x3)))
 		for n in range(0,maxn + 1):  	    
-		    try: 
 			    #spherical bessel functions
 			    jx1=self.sphbess(n,x1)
 			    jx2=self.sphbess(n,x2)
@@ -113,9 +112,6 @@ class faranBsc(object):
 			    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3)
 			    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2)
 			  
-		    except(FloatingPointError):
-			    coeff[n,:] = 0 
-		
 		#legendre polynomials
 		temp, deriv=lpmn(n,n,numpy.cos(numpy.pi/180*theta))
 		#taking the first row is effectively taking m = 0
@@ -124,7 +120,8 @@ class faranBsc(object):
 		#matrix mult completes summation over n
 		k3absscatlength=abs(numpy.dot(legend,coeff))
 		output = k3absscatlength.reshape( len(x3) )
-		output[output == numpy.nan] = 0
+		output[numpy.isnan(output)] = 0
+		numpy.seterr(**oldWarningSettings)
 		return output
 
 	def sphneumm(self,order,vect):
