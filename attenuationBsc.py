@@ -3,7 +3,7 @@ from faranScattering import faranBsc
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8.):
+	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 8, overlapY = .85, overlapX = .85, spectralShiftRangeMhz):
 		'''Input:
 			sampleName:  Filename of sample RF data
 			refName:  Filename of reference RF data
@@ -13,6 +13,10 @@ class attenuation(rfClass):
 					the attenuation slope in dB/(cm MHz)
 			freqLow:  The low frequency for the CZT in MHz
 			freqHigh: The high frequency for the CZT in MHz
+			attenuationKernelSizeMM:  The size of the data segment used to do the least squares fitting
+			to find center frequency shift with depth.
+			blockSizeY,Xmm:
+			blockOverlap:
 
 		  Throughout the code I'll call the 1-D segment where a single FFT is performed a window
 
@@ -37,11 +41,11 @@ class attenuation(rfClass):
 		#Attenuation estimation parameters
 		self.betaRef = refAttenuation
 		#get window sizes and overlap
-		self.blockYmm = 8
-		self.blockXmm = 10
-		self.overlapY = .9
-		self.overlapX = .95
-		self.spectralShiftRangeMhz = 2.
+		self.blockYmm = blockYmm
+		self.blockXmm = blockXmm
+		self.overlapY = overlapY
+		self.overlapX = overlapX
+		self.spectralShiftRangeMhz = spectralShiftRangeMHz 
 		
 		self.blockX =int( self.blockXmm/self.deltaX)
 		self.blockY =int( self.blockYmm/self.deltaY)
@@ -66,7 +70,7 @@ class attenuation(rfClass):
 		#Work it out in points
 		#Make kernel size an odd number of poitns
 		#Work out kernel size in mm
-		self.attenuationKernelSizeYmm = 12 #attenuation estimation size used in least squares fit
+		self.attenuationKernelSizeYmm = attenuationKernelSizeYmm #attenuation estimation size used in least squares fit
 		self.lsqFitPoints = int(self.attenuationKernelSizeYmm/(stepY*self.deltaY) ) #make this number odd
 		if not self.lsqFitPoints%2:
 			self.lsqFitPoints += 1
@@ -171,17 +175,13 @@ class attenuation(rfClass):
 		stepY = self.blockCenterY[1] - self.blockCenterY[0]
 		stepX = self.blockCenterX[1] - self.blockCenterX[0]
 
+		#first compute the power spectrum at each depth for the reference phantom and
+		#average over all the blocks
+		self.computeReferenceSpectrum()
 		for x in range(numX):
-			if not x:
-				from time import time
-				t1 = time()
 			tempRegionSample = self.data[:, self.blockCenterX[x] - self.halfX:self.blockCenterX[x] + self.halfX + 1]
-			tempRegionRef = self.refRf.data[:, self.blockCenterX[x] - self.halfX:self.blockCenterX[x] + self.halfX + 1]
 			self.attenuationImage[:, x] = self.CalculateAttenuationAlongBeamLine(tempRegionSample, tempRegionRef)
-			if not x:
-				t2 = time()
-				print "Time for a beamline was" + str(t2 - t1) + " seconds"
-				print "Time for all lines is: " + str( (t2-t1)*numX/60 ) + "minutes"
+				
 					
 		#convert slope value to attenuation value
 		self.attenuationImage *= -8.686/(4*self.sigma**2)
@@ -192,6 +192,31 @@ class attenuation(rfClass):
 		if convertToRgb:
 			self.attenuationImage = self.CreateParametricImage(self.attenuationImage,[startY, startX], [stepY, stepX] )
 
+	def ComputeReferenceSpectrum(self):
+
+		'''Calculate the spectrum of the reference region over every beamline at every
+		depth, average over all the beamlines
+
+		'''
+		import numpy
+	
+		#list comprehension, avoids all list entries pointing to same array.  A little ugly	
+		self.refSpectrumList = [numpy.zeros(self.bartlettY)] for i in range(len(self.blockCenterY)) ]
+		
+		for countX,x in enumerate(self.blockCenterX):
+			for countY,y in enumerate(self.blockCenterY):
+				
+				#######REFERENCE REGION#######
+				maxDataWindow = refRegion[y - self.halfY:y + self.halfY+1, :]
+				fftRef = self.CalculateSpectrumBlock(maxDataWindow)
+				self.refSpectrumList[y] += fftRef
+
+		#normalize
+		for y in range(len(refSpectrumList)):
+			self.refSpectrumList /= self.refSpectrumList.max()
+		
+		
+		
 	def CalculateAttenuationAlongBeamLine(self, sampleRegion, refRegion):
 		'''Calculate the attenuation along a single beam line using the hybrid method.
 		Input:
@@ -208,46 +233,24 @@ class attenuation(rfClass):
 			maxDataWindow = sampleRegion[y - self.halfY:y + self.halfY+1, :]
 			fftSample = self.CalculateSpectrumBlock(maxDataWindow)
 				
-			#######REFERENCE REGION#######
-			maxDataWindow = refRegion[y - self.halfY:y + self.halfY+1, :]
-			fftRef = self.CalculateSpectrumBlock(maxDataWindow)
-
 			###Divide sample spectrum by reference spectrum to perform deconvolution
 			#gfr = gaussian filtered ratio
-			gfr = fftSample/fftRef*self.gaussianFilter	
+			gfr = fftSample/self.refSpectrumList[y]*self.gaussianFilter	
 			spectrumList.append(gfr.copy())
 
 		
-
-		#Compute centroid by fitting spectrum to 
-		#a gaussian
-		centroids = numpy.zeros(self.lsqFitPoints)	
+		#Calculate center frequency shift with depth
 		slope = numpy.zeros(len(self.attenCenterY))
-		
 		shift = [0]*self.lsqFitPoints
 	
 		
-		def runningSum(iterable):
-			sum = 0
-			for x in iterable:
-				sum += x
-				yield sum
 	
 		#include contribution from attenuation terms				
 		for y,centerY in enumerate(self.attenCenterY):
-			if y == 0:
-				betaDiffNepers = 0.0
-			else:
-				betaDiff= -8.686*slope[0:y].mean()/(4*self.sigma**2)
-				betaDiffNepers = betaDiff/8.686
-			
-			depthBlockOne = self.blockCenterY[y]*self.deltaY/10.
-			factorOne = numpy.exp(-4*betaDiffNepers*depthBlockOne*self.spectrumFreq)
 				
 			for w in range(self.lsqFitPoints):
 				depthBlockTwo = (self.blockCenterY[y+w])*self.deltaY/10.
-				factorTwo = numpy.exp(-4*betaDiffNepers*depthBlockTwo*self.spectrumFreq)
-				shift[w] =self.findShift(spectrumList[y]*factorOne, spectrumList[y + w]*factorTwo )
+				shift[w] =self.findShift(spectrumList[y], spectrumList[y + w] )
 
 			slope[y] = self.lsqFit(shift)	
 		
