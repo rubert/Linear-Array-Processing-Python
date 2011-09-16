@@ -20,14 +20,18 @@ class scattererSizeClass(attenuation):
 		startX = self.blockCenterX[0]
 		stepY = self.attenCenterY[1] - self.attenCenterY[0]
 		stepX = self.blockCenterX[1] - self.blockCenterX[0]
-		
+
+		self.computeReferenceSpectrum()
+				
 		for yParam,yRf in enumerate(self.attenCenterY):
 			for xParam, xRf in enumerate(self.blockCenterX):
 				betaDiff = self.attenuationImage[0:yParam + 1,xParam].mean()	
+				betaDiff /= 8.686
 				depthCm = (self.deltaY*yRf)/10
 				tempRegionSample = self.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
-				tempRegionRef = self.refRf.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
-				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, tempRegionRef, betaDiff, depthCm)
+				fftSample = self.CalculateSpectrumBlock(sampleRegion)
+				rpmSpectrum = fftSample/refSpectrum*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
+				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, betaDiff, depthCm)
 			
 	
 		#convert scatterer size image to RGB parametric image	
@@ -57,18 +61,14 @@ class scattererSizeClass(attenuation):
 			self.bscCurveFaranList.append( tempBsc.copy())
 
 
-	def CalculateScatSizeOnePoint(self, sampleRegion, refRegion, betaDiff, depthCm):
+	def CalculateScatSizeOnePoint(self, refRegion, refSpectrum, betaDiff, depthCm):
 		'''This function calculates power spectrum ratios and multiplies by an attenuation 
 		difference with a known reference phantom.  The units on the attenuation difference are in 
 		dB/(cm MHz)'''
 		import numpy
 		
-		betaDiff /= 8.686
 		
-		fftSample = self.CalculateSpectrumBlock(sampleRegion)
-		fftRef = self.CalculateSpectrumBlock(refRegion)				
 		###Divide sample spectrum by reference spectrum to perform deconvolution
-		rpmSpectrum = fftSample/fftRef*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
 		from matplotlib import pyplot
 		import pdb
 		pdb.set_trace()

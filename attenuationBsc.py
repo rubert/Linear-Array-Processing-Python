@@ -4,7 +4,11 @@ from faranScattering import faranBsc
 class attenuation(rfClass):
 
 	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 8, overlapY = .85, overlapX = .85, spectralShiftRangeMhz):
-		'''Input:
+		'''Description:
+			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
+			defined for working with simulations and Seimens rfd files.
+		
+		Input:
 			sampleName:  Filename of sample RF data
 			refName:  Filename of reference RF data
 			sampleType:  The file type of the sample RFdata
@@ -100,55 +104,6 @@ class attenuation(rfClass):
 		self.czt = chirpz.ZoomFFT(self.bartlettY, freqLow, freqHigh, self.bartlettY, self.fs/10.**6)
 		self.spectralShiftRangePoints = int(self.spectralShiftRangeMhz/self.spectrumFreqStep)
 			
-	def FindCenterFrequency(self, centerFreq = None):
-		'''Show a B-mode image of the reference phantom
-		and pick the focus by visual inspection.  Then fit the transmit pulse
-		to a Gaussian through a least-squares fit with 2 parameters,
-		center frequency and variance.'''
-
-		import numpy
-		from scipy import optimize
-
-		self.refRf.SetRoiFixedSize(self.blockXmm, self.blockYmm)
-
-		#get the depth of the ROI
-		focalDepth = (self.refRf.roiY[0] + self.refRf.roiY[1])//2
-		
-		
-		#ask for an initial guess on the center frequency
-		from matplotlib import pyplot
-		tempRoi =self.refRf.data[focalDepth - self.halfY:focalDepth + self.halfY + 1, self.blockCenterX[0] - self.halfX:self.blockCenterX[0] + self.halfX + 1]
-		if not centerFreq:
-			spec = self.CalculateSpectrumBlock(tempRoi)
-			pyplot.plot(self.spectrumFreq, spec)
-			pyplot.show()
-			centerFreq = input("Enter a center frequency (MHz) " )
-
-		#create functions for LSQ gaussian fit
-		fitfunc = lambda p,f: numpy.exp( - (f - p[0])**2 / (2*p[1]**2) )
-		errfunc = lambda p,f, y: (fitfunc(p,f) - y )**2
-		p0 = numpy.array( [float(centerFreq), 3.0] )
-
-
-		#loop through bealines, calculating power spectrum, performing Gaussian fit
-		self.centerFreq = 0.
-		self.sigma = 0.
-		count = 0
-		for x in self.blockCenterX:
-			spec = self.CalculateSpectrumBlock(self.refRf.data[focalDepth - self.halfY:focalDepth + self.halfY + 1, x - self.halfX:x + self.halfX + 1] )
-			spec /= spec.max()	
-			#fit a Gaussian to the power spectrum
-			[p1, success] = optimize.leastsq(errfunc, p0, args = (self.spectrumFreq,spec) )
-			self.centerFreq += p1[0]
-			self.sigma += p1[1]
-			count += 1
-
-		self.sigma /= count
-		self.centerFreq /= count
-		#show fitted spectrum
-		self.gaussianFilter = fitfunc([self.centerFreq, self.sigma],self.spectrumFreq)
-		pyplot.plot(self.spectrumFreq, self.gaussianFilter )
-		pyplot.show()
 	
 	
 	def CalculateAttenuationImage(self,convertToRgb = True ):
@@ -178,13 +133,26 @@ class attenuation(rfClass):
 		#first compute the power spectrum at each depth for the reference phantom and
 		#average over all the blocks
 		self.computeReferenceSpectrum()
-		for x in range(numX):
-			tempRegionSample = self.data[:, self.blockCenterX[x] - self.halfX:self.blockCenterX[x] + self.halfX + 1]
-			self.attenuationImage[:, x] = self.CalculateAttenuationAlongBeamLine(tempRegionSample, tempRegionRef)
+		self.computeSampleSpectrum()
+	
+	
+		#compute the log ratio
+		#fit the log ratio at each depth to a line
+		#to get derivative with respect to frequency
+		for countY in range(len(refSpectrumList)):
+			for countX in range(numX):
+				logRatio = numpy.log( self.sampleSpectrum[:,countY,countX]/self.refSpectrum[:,countY, countX] )
+				dFreqLogRatio[countY, countX] = self.lsqFit(logRatio)/self.spectrumFreqStep
 				
+		attenKernelCm = self.attenuationKernelSizeYmm/10.
+		#now compute the derivative with respect to depth
+		for countY in range(numY):
+			for countX in range(numX):
+				self.attenuationImage = self.lsqFit(dFreqLogRatio[countY:countY+self., countX] ) /attenKernelCm
+					
 					
 		#convert slope value to attenuation value
-		self.attenuationImage *= -8.686/(4*self.sigma**2)
+		self.attenuationImage *= -8.686/4.
 		self.attenuationImage += self.betaRef
 		
 		print "Mean attenuation value of: " + str( self.attenuationImage.mean() )
@@ -201,7 +169,7 @@ class attenuation(rfClass):
 		import numpy
 	
 		#list comprehension, avoids all list entries pointing to same array.  A little ugly	
-		self.refSpectrumList = [numpy.zeros(self.bartlettY)] for i in range(len(self.blockCenterY)) ]
+		self.refSpectrum = numpy.zeros(self.bartlettY, len(self.blockCenterY))
 		
 		for countX,x in enumerate(self.blockCenterX):
 			for countY,y in enumerate(self.blockCenterY):
@@ -209,85 +177,29 @@ class attenuation(rfClass):
 				#######REFERENCE REGION#######
 				maxDataWindow = refRegion[y - self.halfY:y + self.halfY+1, :]
 				fftRef = self.CalculateSpectrumBlock(maxDataWindow)
-				self.refSpectrumList[y] += fftRef
+				self.refSpectrum[:,y] += fftRef
 
 		#normalize
 		for y in range(len(refSpectrumList)):
-			self.refSpectrumList /= self.refSpectrumList.max()
+			self.refSpectrumList /= self.refSpectrumList[:,y].max()
 		
-		
-		
-	def CalculateAttenuationAlongBeamLine(self, sampleRegion, refRegion):
-		'''Calculate the attenuation along a single beam line using the hybrid method.
-		Input:
-		sampleRegion:  RF data from the sample, this is the entire column in the axial
-		direction, and the block size in the lateral direction
-		refRegion:  RF data from the reference phantom
-
+	
+			
+	def ComputeSampleSpectrum(self):
+		'''Calculate the spectra for the sample. 
 		'''
 		import numpy
 		
-		spectrumList = []
-		for count,y in enumerate(self.blockCenterY):
-			#get first spectrum for x-correlation
-			maxDataWindow = sampleRegion[y - self.halfY:y + self.halfY+1, :]
-			fftSample = self.CalculateSpectrumBlock(maxDataWindow)
-				
-			###Divide sample spectrum by reference spectrum to perform deconvolution
-			#gfr = gaussian filtered ratio
-			gfr = fftSample/self.refSpectrumList[y]*self.gaussianFilter	
-			spectrumList.append(gfr.copy())
+		self.sampleSpectrum = numpy.zeros(self.bartlettY, len(self.blockCenterY), len(self.blockCenterX))
+		
+		for countX, x in enumerate(self.blockCenterX):
+			for countY,y in enumerate(self.blockCenterY):
+				maxDataWindow = sampleRegion[y - self.halfY:y + self.halfY+1, x - self.halfX: x + self.halfX + 1]
+				fftSample = self.CalculateSpectrumBlock(maxDataWindow)
+				self.sampleSpectrum[:,countY,countX] = fftSample
+					
 
 		
-		#Calculate center frequency shift with depth
-		slope = numpy.zeros(len(self.attenCenterY))
-		shift = [0]*self.lsqFitPoints
-	
-		
-	
-		#include contribution from attenuation terms				
-		for y,centerY in enumerate(self.attenCenterY):
-				
-			for w in range(self.lsqFitPoints):
-				depthBlockTwo = (self.blockCenterY[y+w])*self.deltaY/10.
-				shift[w] =self.findShift(spectrumList[y], spectrumList[y + w] )
-
-			slope[y] = self.lsqFit(shift)	
-		
-		
-		return slope
-
-	def findShift(self, ps1, ps2):
-		'''Use the openCV library to compute a cross-correlation between
-		two power spectra and return the frequency shift'''
-		import cv
-		import numpy as np
-		#allocate array to hold results of cross correlation
-		resultNp = np.float32( np.zeros( (2*self.spectralShiftRangePoints + 1,1)  ) )
-		resultCv = cv.fromarray(resultNp)
-
-		#convert template and image to openCV friendly arrays
-		template = cv.fromarray( np.float32( ps1.reshape(len(ps1), 1) ) )
-		imageNp = np.zeros( (len(ps2) + 2*self.spectralShiftRangePoints , 1) )
-		imageNp[self.spectralShiftRangePoints:self.spectralShiftRangePoints + len(ps2), 0] = ps2
-		image = cv.fromarray( np.float32(imageNp))
-
-		cv.MatchTemplate(template, image, resultCv, cv.CV_TM_CCORR_NORMED )
-		resultNp = np.asarray(resultCv)
-
-		#FIND MAXIMUM, PERFORM SUB-SAMPLE FITTING
-		maxInd = resultNp.argmax()
-
-		delta = 0.0
-		if maxInd > 0 and maxInd < len(resultNp) - 1:
-			c = resultNp[maxInd]
-			a = (resultNp[maxInd-1] + resultNp[maxInd + 1] )/2 - c
-			b = (resultNp[maxInd-1] - resultNp[maxInd + 1])/2
-			delta = float( - b/ (2*a) )
-		if abs(delta) > 1:
-			delta = 0.0
-
-		return (maxInd - self.spectralShiftRangePoints + delta)*self.spectrumFreqStep
 	
 	def lsqFit(self, inputArray):
 		'''

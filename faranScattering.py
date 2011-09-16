@@ -1,7 +1,7 @@
 class faranBsc(object):
 
 
-	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 30):
+	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 25):
 		'''a function to calculate normalized BSC curve from Tony's Faran code. Assume Tony's 
 		%code only calculates 180 degree k3absscatlength values.
 		%
