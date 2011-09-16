@@ -450,7 +450,7 @@ def test(demo=None,plots=[1,2,3]):
     _test1(x, show=(demo==3), plots=plots)
 
     # 4: Sines
-    x=np.zeros(100)
+    x=np.zeros(100, complex)
     x[[1,5,21]]=1
     _test1(x, show=(demo==4), plots=plots)
 
@@ -484,5 +484,5 @@ def demo_scaledfft(v, scale, m):
 
 if __name__ == "__main__":
     # Choose demo in [0,4] to show plot, or None for testing only
-    test(demo=None)
+    test(demo=0)
 

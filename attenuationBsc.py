@@ -3,7 +3,7 @@ from faranScattering import faranBsc
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 8, overlapY = .85, overlapX = .85, spectralShiftRangeMhz):
+	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .95, overlapX = .95 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -35,7 +35,10 @@ class attenuation(rfClass):
 
 		super(attenuation, self).__init__(sampleName, sampleType)
 		self.refRf = rfClass(refName, refType)
-			
+		
+		#read in frames
+		self.refRf.ReadFrame()
+		self.ReadFrame()
 		#Check to see that reference data and sample data contain
 		#the same number of points
 		if self.points != self.refRf.points or self.lines != self.refRf.lines:
@@ -49,10 +52,9 @@ class attenuation(rfClass):
 		self.blockXmm = blockXmm
 		self.overlapY = overlapY
 		self.overlapX = overlapX
-		self.spectralShiftRangeMhz = spectralShiftRangeMHz 
-		
 		self.blockX =int( self.blockXmm/self.deltaX)
 		self.blockY =int( self.blockYmm/self.deltaY)
+	
 		
 		#make the block sizes in pixels odd numbers for the sake of calculating their centers
 		if not self.blockY%2:
@@ -102,7 +104,6 @@ class attenuation(rfClass):
 
 		#set-up the chirpZ transform
 		self.czt = chirpz.ZoomFFT(self.bartlettY, freqLow, freqHigh, self.bartlettY, self.fs/10.**6)
-		self.spectralShiftRangePoints = int(self.spectralShiftRangeMhz/self.spectrumFreqStep)
 			
 	
 	
@@ -120,8 +121,8 @@ class attenuation(rfClass):
 		if type(self.data) == types.NoneType:
 			self.ReadFrame()
 			self.refRf.ReadFrame()
-		
-		self.FindCenterFrequency()	
+	
+			
 		numY = len(self.attenCenterY)
 		numX = len(self.blockCenterX)
 		self.attenuationImage = numpy.zeros( (numY, numX) )	
@@ -132,31 +133,31 @@ class attenuation(rfClass):
 
 		#first compute the power spectrum at each depth for the reference phantom and
 		#average over all the blocks
-		self.computeReferenceSpectrum()
-		self.computeSampleSpectrum()
-	
+		self.ComputeReferenceSpectrum()
+		self.ComputeSampleSpectrum()
+
 	
 		#compute the log ratio
 		#fit the log ratio at each depth to a line
 		#to get derivative with respect to frequency
-		for countY in range(len(refSpectrumList)):
+		dFreqLogRatio = numpy.zeros( ( self.refSpectrum.shape[1], numX) )	
+		for countY in range(self.refSpectrum.shape[1]):
 			for countX in range(numX):
-				logRatio = numpy.log( self.sampleSpectrum[:,countY,countX]/self.refSpectrum[:,countY, countX] )
-				dFreqLogRatio[countY, countX] = self.lsqFit(logRatio)/self.spectrumFreqStep
-				
+				logRatio = numpy.log( self.sampleSpectrum[:,countY,countX]/self.refSpectrum[:,countY] )
+				dFreqLogRatio[countY, countX] = self.lsqFit(logRatio, self.spectrumFreqStep)
+								
 		attenKernelCm = self.attenuationKernelSizeYmm/10.
 		#now compute the derivative with respect to depth
 		for countY in range(numY):
 			for countX in range(numX):
-				self.attenuationImage = self.lsqFit(dFreqLogRatio[countY:countY+self., countX] ) /attenKernelCm
-					
+				self.attenuationImage[countY, countX] = self.lsqFit(dFreqLogRatio[countY:countY+self.lsqFitPoints, countX], attenKernelCm/self.lsqFitPoints )					
 					
 		#convert slope value to attenuation value
 		self.attenuationImage *= -8.686/4.
 		self.attenuationImage += self.betaRef
 		
 		print "Mean attenuation value of: " + str( self.attenuationImage.mean() )
-				
+		
 		if convertToRgb:
 			self.attenuationImage = self.CreateParametricImage(self.attenuationImage,[startY, startX], [stepY, stepX] )
 
@@ -167,21 +168,18 @@ class attenuation(rfClass):
 
 		'''
 		import numpy
-	
-		#list comprehension, avoids all list entries pointing to same array.  A little ugly	
-		self.refSpectrum = numpy.zeros(self.bartlettY, len(self.blockCenterY))
 		
-		for countX,x in enumerate(self.blockCenterX):
+		self.refSpectrum = numpy.zeros((self.bartlettY, len(self.blockCenterY) ))
+		for x in self.blockCenterX:
 			for countY,y in enumerate(self.blockCenterY):
 				
-				#######REFERENCE REGION#######
-				maxDataWindow = refRegion[y - self.halfY:y + self.halfY+1, :]
+				maxDataWindow = self.refRf.data[y - self.halfY:y + self.halfY+1, x - self.halfX:x + self.halfX + 1]
 				fftRef = self.CalculateSpectrumBlock(maxDataWindow)
-				self.refSpectrum[:,y] += fftRef
+				self.refSpectrum[:,countY] += fftRef
 
 		#normalize
-		for y in range(len(refSpectrumList)):
-			self.refSpectrumList /= self.refSpectrumList[:,y].max()
+		for y in range(self.refSpectrum.shape[1]):
+			self.refSpectrum[:,y] /= self.refSpectrum[:,y].max()
 		
 	
 			
@@ -190,18 +188,18 @@ class attenuation(rfClass):
 		'''
 		import numpy
 		
-		self.sampleSpectrum = numpy.zeros(self.bartlettY, len(self.blockCenterY), len(self.blockCenterX))
+		self.sampleSpectrum = numpy.zeros( (self.bartlettY, len(self.blockCenterY), len(self.blockCenterX)) )
 		
 		for countX, x in enumerate(self.blockCenterX):
 			for countY,y in enumerate(self.blockCenterY):
-				maxDataWindow = sampleRegion[y - self.halfY:y + self.halfY+1, x - self.halfX: x + self.halfX + 1]
+				maxDataWindow = self.data[y - self.halfY:y + self.halfY+1, x - self.halfX: x + self.halfX + 1]
 				fftSample = self.CalculateSpectrumBlock(maxDataWindow)
 				self.sampleSpectrum[:,countY,countX] = fftSample
 					
 
 		
 	
-	def lsqFit(self, inputArray):
+	def lsqFit(self, inputArray, spacing):
 		'''
 		Input:  
 		inputArray: An array containing frequency shifts over depth.  The units are
@@ -219,12 +217,9 @@ class attenuation(rfClass):
 		#
 		'''
 		import numpy
-		pointStep = self.blockCenterY[1] - self.blockCenterY[0]
-		#in cm
-		deltaZ = 1540./(2*self.fs)*10**2*pointStep
 		
-		A = numpy.ones( (self.lsqFitPoints,2) )
-		A[:,0] = numpy.arange(0, self.lsqFitPoints)*deltaZ
+		A = numpy.ones( (len(inputArray),2) )
+		A[:,0] = numpy.arange(0, len(inputArray))*spacing
 		b = inputArray
 		out = numpy.linalg.lstsq(A, b)
 	

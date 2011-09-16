@@ -1,6 +1,38 @@
 class faranBsc(object):
 
 
+	def writeBackScatterFile(self,fname,d, deltaFreq = .01,maxFreq = 20, lowCutoff = .1, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 25):
+		'''This is used to write a backscatter file to be read by the ultrasound simulation program.  The parameters are identical to
+		CalculateBSC(), except for the filename.
+		Input:
+		fname = the name of the output file to be written.
+		d = the diameter of the scatterer in microns
+		deltaFreq: (MHz)  The frequency spacing of the calculation.
+		maxFreq:  (MHz)  The maximum frequency for which the BSC is calculated.
+		lowCutoff: (MHz)  The low frequency for which the BSC is calculated.  If this threshold is too low
+		calculations may blow up and give NaN.  The program assumes all BSC below lowCutoff are equal to zero.'''
+
+		
+		import numpy
+		import pdb
+		pdb.set_trace()
+		freq = numpy.arange(0, maxFreq, deltaFreq)
+		#make all backscatter coefficients less than .1 MHz equal to 0
+		ind_lowCutoff = int(lowCutoff/deltaFreq) + 1
+		
+		bscCurve = self.calculateBSC(freq[ind_lowCutoff:], d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 25)
+		#Add back in low frequency points by zero padding
+		bscCurvePadded = numpy.zeros(len(freq))
+		bscCurvePadded[ind_lowCutoff:] = bscCurve
+		#Add freq step and number of freq points to backscatter array
+		bscCurveExtraInfo = numpy.zeros( len(bscCurvePadded) + 2)
+		bscCurveExtraInfo[0] = deltaFreq
+		bscCurveExtraInfo[1] = len(freq)
+		bscCurveExtraInfo[2:] = bscCurvePadded
+		bscCurveExtraInfo.tofile(fname)	
+
+
+
 	def calculateBSC(self, freq, d, sosm = 1540.,soss = 5570.,sosshear = 3374.7,rhom = 1020.,rhos = 2540.,maxang = 180,maxn = 25):
 		'''a function to calculate normalized BSC curve from Tony's Faran code. Assume Tony's 
 		%code only calculates 180 degree k3absscatlength values.
@@ -71,7 +103,6 @@ class faranBsc(object):
 		'''
 		import numpy
 		from scipy.special import lpmn
-		oldWarningSettings = numpy.seterr(all = 'ignore')
 		
 		#initialization
 		theta= 180
@@ -95,21 +126,25 @@ class faranBsc(object):
 			    npx3=n/(2*n+1.)*self.sphneumm(n-1,x3)-(n+1)/(2*n+1.)*self.sphneumm(n+1,x3)
 			    jpx1=n/(2*n+1.)*self.sphbess(n-1,x1)-(n+1)/(2*n+1.)*self.sphbess(n+1,x1)
 			    jpx2=n/(2*n+1.)*self.sphbess(n-1,x2)-(n+1)/(2*n+1.)*self.sphbess(n+1,x2)
-			    
+			   
+			    #calculation of tandelta, tanalpha, tanbeta 
 			    tandeltax3=-jx3/nx3
 			    tanalphax3=-x3*jpx3/jx3
 			    tanbetax3=-x3*npx3/nx3
 			    tanalphax1=-x1*jpx1/jx1
 			    tanalphax2=-x2*jpx2/jx2
 			    
-			    #calculation of tanxsi and coefficient
+			    #calculation of tanxsi [eq. 30]
 			    term1=tanalphax1/(tanalphax1+1)
 			    term2=(n**2+n)/(n**2+n-1-0.5*x2**2+tanalphax2)
 			    term3=(n**2+n-0.5*x2**2+2*tanalphax1)/(tanalphax1+1)
 			    term4=((n**2+n)*(tanalphax2+1))/(n**2+n-1-0.5*x2**2+tanalphax2)
 			    tanxsi=-x2**2/2*(term1-term2)/(term3-term4)
-			    
-			    taneta=tandeltax3*(-rhom/rhos*tanxsi+tanalphax3)/(-rhom/rhos*tanxsi+tanbetax3)
+			   
+			    #calculation of tanphi [eq. 29]
+			    tanPhi = -rhom/rhos*tanxsi  
+			    #calculation of coefficient (2n+1)*sin(eta)*cos(eta) part of [eqn. 31]
+			    taneta=tandeltax3*(tanPhi+tanalphax3)/(tanPhi+tanbetax3)
 			    coeff[n,:]=(2*n+1)*taneta/(1+taneta**2)+1j*(2*n+1)*taneta**2/(1+taneta**2)
 			  
 		#legendre polynomials
@@ -117,11 +152,10 @@ class faranBsc(object):
 		#taking the first row is effectively taking m = 0
 		legend=temp[0,:].reshape((1,maxn + 1))
 		
-		#matrix mult completes summation over n
+		#matrix mult completes summation over n [eqn. 31]
 		k3absscatlength=abs(numpy.dot(legend,coeff))
 		output = k3absscatlength.reshape( len(x3) )
 		output[numpy.isnan(output)] = 0
-		numpy.seterr(**oldWarningSettings)
 		return output
 
 	def sphneumm(self,order,vect):
