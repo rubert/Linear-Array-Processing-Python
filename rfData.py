@@ -5,10 +5,13 @@ class rfClass(object):
 	bModeImageCount = 0
 		
 	def __init__(self, filename, dataType):
-		'''Input:  filename:  The name of the file or directory the data is from \n
-		   dataType:  A lowercase string indicating the type of the data, choices are: \n
+		'''Input:  
+		   filename:  The name of the file or directory the data is from 
+		   dataType:  A lowercase string indicating the type of the data, choices are: 
 		   		ei
 				rfd
+				rf
+				sim
 				 '''
 		
 		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' ):
@@ -83,8 +86,6 @@ class rfClass(object):
 		
 		if dataType == 'sim':
 				
-			'''Given an input file try to open it and read in the data, the default transducer bandwidth and 
-			center frequency are .5 and 5 MHz'''
 			f = open(filename, 'rb')
 			
 			import numpy as np
@@ -103,11 +104,19 @@ class rfClass(object):
 			self.fovY = self.deltaY*self.points
 						
 			
-	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, sigma = 1.0E6):
+	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, sigma = 1.0E6, samplingFrequency = 40.0E6):
 		'''Read a single frame from the input file, the method varies depending on the file type that
 		was read in.  This can handle linear array data from the Seimens S2000 recorded in either mode
 		or the Ultrasonix scanner recorded using the clinical software.
-		For a simulated data file, the 2nd and 3rd parameters matter, not for real data.'''
+		For a simulated data file, the 2nd and 3rd parameters matter, not for real data.
+		
+		Input::
+		frameNo.  The RF data frame from a file obtained off a real ultrasound scanner.
+		CenterFreq: (Hz)  The center frequency of the transmitted pulse for simulated ultrasound data.
+		Sigma. (Hz)  The standard deviation of the Gaussian shaped transmit pulse for simulated data.
+		samplingFrequency. (Hz)  The simulated sampling frequency for a simulated data set.  Higher
+		sampling frequencies are achieved through zero-padding.'''
+
 		if self.dataType == 'ei':
 			import os, numpy
 			startdir = os.getcwd()
@@ -152,6 +161,8 @@ class rfClass(object):
 
 
 		if self.dataType == 'sim':
+			####To get the actual sampling frequency we will zero-pad up to the
+			###desired sampling frequency
 					
 			self.centerFreq = centerFreq #Hz
 			self.sigma = sigma
@@ -161,20 +172,29 @@ class rfClass(object):
 			#in Hz
 			self.freqstep =float( np.fromfile(f, np.double,1) )
 			self.points = int( np.fromfile(f, np.int32,1) )
-			self.fs = self.freqstep*self.points
 			self.lines = int( np.fromfile(f, np.int32,1) )
 			tempReal = np.fromfile(f,np.double, self.points*self.lines )
 			tempImag = np.fromfile(f, np.double, self.points*self.lines )
 			f.close()
-			
+		
+		
+			pointsToDesiredFs = int(samplingFrequency/self.freqstep)
+			self.fs = pointsToDesiredFs*self.freqstep
 			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
 					
 			import math
 			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
 			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
 			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
-	
-			self.data = np.fft.ifft(temp,axis=0 ).real	
+
+			import pdb
+			pdb.set_trace()
+			from matplotlib import pyplot
+
+			zeroPadded = np.zeros( (pointsToDesiredFs, self.lines) ) + 1j*np.zeros( (pointsToDesiredFs, self.lines) )
+			zeroPadded[0:self.points, :] = temp	
+			self.data = np.fft.ifft(zeroPadded,axis=0 ).real	
+			self.points = pointsToDesiredFs
 
 
 

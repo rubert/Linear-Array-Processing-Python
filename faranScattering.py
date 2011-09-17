@@ -14,8 +14,6 @@ class faranBsc(object):
 
 		
 		import numpy
-		import pdb
-		pdb.set_trace()
 		freq = numpy.arange(0, maxFreq, deltaFreq)
 		#make all backscatter coefficients less than .1 MHz equal to 0
 		ind_lowCutoff = int(lowCutoff/deltaFreq) + 1

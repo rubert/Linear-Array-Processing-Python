@@ -27,7 +27,6 @@ class attenuation(rfClass):
 		  A block will refer to a 2-D region spanning multiple windows axially and several A-lines
 		  where a power spectrum is calculated by averaging FFTs 
 					'''
-		import poorMansChirpZ
 		import numpy
 		
 		if not refType:
@@ -105,7 +104,7 @@ class attenuation(rfClass):
 		#set-up parameters for the chirpZ transform
 		fracUnitCircle = (freqHigh - freqLow)/(self.fs/10**6)
 		self.cztW = numpy.exp(1j* (2*numpy.pi/self.bartlettY)*fracUnitCircle ) 
-		self.cztA = numpy.exp(1j* (2*numpy.pi) * freqLow/(self.fs/10**6) )
+		self.cztA = numpy.exp(1j* (2*numpy.pi/self.bartlettY) * freqLow/(self.fs/10**6) )
 			
 	
 	
@@ -170,8 +169,6 @@ class attenuation(rfClass):
 
 		'''
 		import numpy
-		import pdb
-		pdb.set_trace()	
 		self.refSpectrum = numpy.zeros((self.bartlettY, len(self.blockCenterY) ))
 		for x in self.blockCenterX:
 			for countY,y in enumerate(self.blockCenterY):
@@ -247,14 +244,16 @@ class attenuation(rfClass):
 		points /= 2
 		#######SAMPLE REGION#############
 		maxDataWindow = region[0:2*points, :]
-		
+	
+		import pdb
+		pdb.set_trace()	
 		#compute 3 fourier transforms and average them	
 		windowFunc = hamming(points).reshape(points,1)
 		fftSample = numpy.zeros(points)	
 		for f in range(3):
 			dataWindow = maxDataWindow[(points/2)*f:(points/2)*f + points, :]*windowFunc	
 			
-			for l in range(dataWindow.shape[1]:
+			for l in range(dataWindow.shape[1]):
 				fftSample += chirpz(dataWindow[:,l], self.cztA, self.cztW, points).copy()
 	
 		return fftSample	
