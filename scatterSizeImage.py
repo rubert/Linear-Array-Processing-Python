@@ -1,5 +1,5 @@
 from rfData import rfClass
-from attenuationBsc import attenuation
+from attenuation import attenuation
 from faranScattering import faranBsc
 
 class scattererSizeClass(attenuation):
@@ -21,17 +21,15 @@ class scattererSizeClass(attenuation):
 		stepY = self.attenCenterY[1] - self.attenCenterY[0]
 		stepX = self.blockCenterX[1] - self.blockCenterX[0]
 
-		self.computeReferenceSpectrum()
 				
 		for yParam,yRf in enumerate(self.attenCenterY):
 			for xParam, xRf in enumerate(self.blockCenterX):
 				betaDiff = self.attenuationImage[0:yParam + 1,xParam].mean()	
 				betaDiff /= 8.686
 				depthCm = (self.deltaY*yRf)/10
-				tempRegionSample = self.data[yRf - self.halfY:yRf + self.halfY + 1, xRf - self.halfX:xRf + self.halfX + 1]
-				fftSample = self.CalculateSpectrumBlock(sampleRegion)
-				rpmSpectrum = fftSample/refSpectrum*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
-				self.scatSizeImage[yParam, xParam] = self.CalculateScatSizeOnePoint(tempRegionSample, betaDiff, depthCm)
+				rpmSpectrum = self.sampleSpectrum[:,yParam + self.halfLsq,xParam]/self.refSpectrum[:,yParam]*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
+				diffs = self.ComputeBscCoefficients(rpmSpectrum )		
+				self.scatSizeImage[yParam, xParam] = self.bscFaranSizes[diffs.argmin()]	
 			
 	
 		#convert scatterer size image to RGB parametric image	
@@ -60,22 +58,7 @@ class scattererSizeClass(attenuation):
 			tempBsc = faranInstance.calculateBSC(self.spectrumFreq, d)
 			self.bscCurveFaranList.append( tempBsc.copy())
 
-
-	def CalculateScatSizeOnePoint(self, refRegion, refSpectrum, betaDiff, depthCm):
-		'''This function calculates power spectrum ratios and multiplies by an attenuation 
-		difference with a known reference phantom.  The units on the attenuation difference are in 
-		dB/(cm MHz)'''
-		import numpy
-		
-		
-		###Divide sample spectrum by reference spectrum to perform deconvolution
-		from matplotlib import pyplot
-		import pdb
-		pdb.set_trace()
-		diffs = self.ComputeBscCoefficients(rpmSpectrum )		
-		
-		return self.bscFaranSizes[diffs.argmin()]	
-		
+	
 	def ComputeBscCoefficients(self, BSCs):
 		'''Compute a theoretical backscatter curve over the transducer bandwidth.  Find the 
 		logarithm of the difference between the two curves. 

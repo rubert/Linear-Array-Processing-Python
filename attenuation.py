@@ -1,5 +1,4 @@
 from rfData import rfClass
-from faranScattering import faranBsc
 
 class attenuation(rfClass):
 
@@ -143,9 +142,6 @@ class attenuation(rfClass):
 		print "Computing sample spectrum"
 		self.ComputeSampleSpectrum()
 	
-		from matplotlib import pyplot
-		import pdb
-		pdb.set_trace()
 			
 		#compute the log ratio
 		#fit the log ratio at each depth to a line
