@@ -22,8 +22,6 @@ class rfClass(object):
 		self.dataType = dataType
 
 		self.soundSpeed = 1540. #m/s
-		self.fs = 40.*10**6 #Default sampling frequency in Hz
-		self.deltaY = self.soundSpeed/(2*self.fs)*10**3 #Pixel spacing in mm
 		self.data = None
 												
 		if dataType == 'ei':
@@ -92,17 +90,14 @@ class rfClass(object):
 			#in Hz
 			self.freqstep =float( np.fromfile(f, np.double,1) )
 			self.points = int( np.fromfile(f, np.int32,1) )
-			self.fs = self.freqstep*self.points
 			self.lines = int( np.fromfile(f, np.int32,1) )
 			tempReal = np.fromfile(f,np.double, self.points*self.lines )
 			tempImag = np.fromfile(f, np.double, self.points*self.lines )
 			f.close()
 			
-			self.deltaY = 1540. / (2*self.fs)*10**3
 			self.deltaX = .2  #beamspacing in mm
 			self.fovX = self.lines*self.deltaX
-			self.fovY = self.deltaY*self.points
-						
+					
 			
 	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, sigma = 1.0E6, samplingFrequency = 40.0E6):
 		'''Read a single frame from the input file, the method varies depending on the file type that
@@ -187,15 +182,15 @@ class rfClass(object):
 			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
 			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
 
-			import pdb
-			pdb.set_trace()
-			from matplotlib import pyplot
-
 			zeroPadded = np.zeros( (pointsToDesiredFs, self.lines) ) + 1j*np.zeros( (pointsToDesiredFs, self.lines) )
 			zeroPadded[0:self.points, :] = temp	
 			self.data = np.fft.ifft(zeroPadded,axis=0 ).real	
 			self.points = pointsToDesiredFs
-
+			
+			self.fs = self.freqstep*self.points
+			self.deltaY = 1540. / (2*self.fs)*10**3
+			self.fovY = self.deltaY*self.points
+				
 
 
 	def MakeBmodeImage(self, frameNo = 0):

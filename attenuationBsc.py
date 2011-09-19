@@ -3,7 +3,7 @@ from faranScattering import faranBsc
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .95, overlapX = .95 ):
+	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -19,8 +19,9 @@ class attenuation(rfClass):
 			freqHigh: The high frequency for the CZT in MHz
 			attenuationKernelSizeMM:  The size of the data segment used to do the least squares fitting
 			to find center frequency shift with depth.
-			blockSizeY,Xmm:
-			blockOverlap:
+			blockSize[Y,X]mm:
+			overlap[Y,X]:
+			frequencySmoothingKernel: (MHz)
 
 		  Throughout the code I'll call the 1-D segment where a single FFT is performed a window
 
@@ -101,10 +102,13 @@ class attenuation(rfClass):
 		self.spectrumFreqStep = (freqHigh - freqLow)/self.bartlettY
 		self.spectrumFreq = numpy.arange(0, self.bartlettY)*self.spectrumFreqStep + freqLow
 
+		#frequency smoothing kernel
+		self.freqSmoothingPoints = int(frequencySmoothingKernel/self.spectrumFreqStep)
+
 		#set-up parameters for the chirpZ transform
 		fracUnitCircle = (freqHigh - freqLow)/(self.fs/10**6)
-		self.cztW = numpy.exp(1j* (2*numpy.pi/self.bartlettY)*fracUnitCircle ) 
-		self.cztA = numpy.exp(1j* (2*numpy.pi/self.bartlettY) * freqLow/(self.fs/10**6) )
+		self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY ) 
+		self.cztA = numpy.exp(1j* (2*numpy.pi*freqLow/(self.fs/10**6) ) )
 			
 	
 	
@@ -134,19 +138,26 @@ class attenuation(rfClass):
 
 		#first compute the power spectrum at each depth for the reference phantom and
 		#average over all the blocks
+		print "Computing reference spectrum"
 		self.ComputeReferenceSpectrum()
+		print "Computing sample spectrum"
 		self.ComputeSampleSpectrum()
-
 	
+		from matplotlib import pyplot
+		import pdb
+		pdb.set_trace()
+			
 		#compute the log ratio
 		#fit the log ratio at each depth to a line
 		#to get derivative with respect to frequency
+		print "Computing log ratios"
 		dFreqLogRatio = numpy.zeros( ( self.refSpectrum.shape[1], numX) )	
 		for countY in range(self.refSpectrum.shape[1]):
 			for countX in range(numX):
 				logRatio = numpy.log( self.sampleSpectrum[:,countY,countX]/self.refSpectrum[:,countY] )
 				dFreqLogRatio[countY, countX] = self.lsqFit(logRatio, self.spectrumFreqStep)
-								
+					
+		print "Performing linear fitting"			
 		attenKernelCm = self.attenuationKernelSizeYmm/10.
 		#now compute the derivative with respect to depth
 		for countY in range(numY):
@@ -194,7 +205,8 @@ class attenuation(rfClass):
 			for countY,y in enumerate(self.blockCenterY):
 				maxDataWindow = self.data[y - self.halfY:y + self.halfY+1, x - self.halfX: x + self.halfX + 1]
 				fftSample = self.CalculateSpectrumBlock(maxDataWindow)
-				self.sampleSpectrum[:,countY,countX] = fftSample
+				self.sampleSpectrum[:,countY,countX] = fftSample.copy()
+				self.sampleSpectrum[:, countY, countX]/=self.sampleSpectrum[:, countY, countX].max()
 					
 
 		
@@ -236,7 +248,7 @@ class attenuation(rfClass):
 		It uses a zoomed in FFT to compute the power spectrum.  The zoomed in FFT is given by the
 		chirpz transform.
 		'''
-		from scipy.signal import hamming
+		from scipy.signal import hann,convolve
 		import numpy
 		from chirpz import chirpz
 		points = region.shape[0]
@@ -244,16 +256,17 @@ class attenuation(rfClass):
 		points /= 2
 		#######SAMPLE REGION#############
 		maxDataWindow = region[0:2*points, :]
-	
-		import pdb
-		pdb.set_trace()	
+
 		#compute 3 fourier transforms and average them	
-		windowFunc = hamming(points).reshape(points,1)
+		#Cutting off the zero-value end points of the hann window
+		#so it matches Matlab's definition of the function
+		windowFunc = hann(points+2)[1:-1].reshape(points,1)
 		fftSample = numpy.zeros(points)	
 		for f in range(3):
 			dataWindow = maxDataWindow[(points/2)*f:(points/2)*f + points, :]*windowFunc	
 			
 			for l in range(dataWindow.shape[1]):
-				fftSample += chirpz(dataWindow[:,l], self.cztA, self.cztW, points).copy()
+				tmp = abs(chirpz(dataWindow[:,l], self.cztA, self.cztW, points))
+				fftSample += convolve(tmp**2 , numpy.ones(self.freqSmoothingPoints), mode = 'same' )
 	
 		return fftSample	
