@@ -2,7 +2,7 @@ from rfData import rfClass
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, sampleType, refType = None, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 ):
+	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -10,8 +10,9 @@ class attenuation(rfClass):
 		Input:
 			sampleName:  Filename of sample RF data
 			refName:  Filename of reference RF data
-			sampleType:  The file type of the sample RFdata
-			refTYpe:  The file type of the reference RF data.  Defaults to the sampleType
+			dataType:  The file type of the sample and reference RFdata.  Must be the same.
+			numRefFrames:  The number of frames to use in the reference data set to calculate
+			the reference spectrum.  A value of 0 will use all the frames in the data set.
 			refAttenuation:  Assuming a linear dependence of attenuation on frequency,
 					the attenuation slope in dB/(cm MHz)
 			freqLow:  The low frequency for the CZT in MHz
@@ -28,14 +29,24 @@ class attenuation(rfClass):
 		  where a power spectrum is calculated by averaging FFTs 
 					'''
 		import numpy
+	
+		super(attenuation, self).__init__(sampleName, dataType)
 		
-		if not refType:
-			refType = sampleType
-
-		super(attenuation, self).__init__(sampleName, sampleType)
-		self.refRf = rfClass(refName, refType)
+		#For data from clinical scanners the reference and sample data will be the same file
+		#type.  For simulations I will be using a different file type
+		if dataType == 'sim':
+			self.refRf = rfClass(refName, 'multiSim')
+		else:	
+			self.refRf = rfClass(refName, dataType)
+		
+		if numRefFrames >= 1 and numRefFrames < self.refRf.nFrames:	
+			self.numRefFrames = numRefFrames	
+		else:
+			self.numRefFrames = self.refRf.nFrames
+			
 		
 		#read in frames
+		if dataType == 'sim':
 		self.refRf.ReadFrame()
 		self.ReadFrame()
 		#Check to see that reference data and sample data contain
@@ -177,10 +188,11 @@ class attenuation(rfClass):
 		'''
 		import numpy
 		self.refSpectrum = numpy.zeros((self.bartlettY, len(self.blockCenterY) ))
-		for x in self.blockCenterX:
+	
+		for im in range(self.numRefFrames):
+			self.ReadFrame(im)	
 			for countY,y in enumerate(self.blockCenterY):
-				
-				maxDataWindow = self.refRf.data[y - self.halfY:y + self.halfY+1, x - self.halfX:x + self.halfX + 1]
+				maxDataWindow = self.refRf.data[y - self.halfY:y + self.halfY+1, :]
 				fftRef = self.CalculateSpectrumBlock(maxDataWindow)
 				self.refSpectrum[:,countY] += fftRef
 

@@ -12,9 +12,10 @@ class rfClass(object):
 				rfd
 				rf
 				sim
+				multiSim
 				 '''
 		
-		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' ):
+		if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' or dataType == 'multiSim' ):
 			print 'Error.  Datatype must be ei,rfd,rf '
 			return
 		
@@ -91,6 +92,23 @@ class rfClass(object):
 			self.freqstep =float( np.fromfile(f, np.double,1) )
 			self.points = int( np.fromfile(f, np.int32,1) )
 			self.lines = int( np.fromfile(f, np.int32,1) )
+			tempReal = np.fromfile(f,np.double, self.points*self.lines )
+			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			f.close()
+			
+			self.deltaX = .2  #beamspacing in mm
+			self.fovX = self.lines*self.deltaX
+
+		if dataType == 'multiSim':
+				
+			f = open(filename, 'rb')
+			
+			import numpy as np
+			#in Hz
+			self.freqstep =float( np.fromfile(f, np.double,1) )
+			self.points = int( np.fromfile(f, np.int32,1) )
+			self.lines = int( np.fromfile(f, np.int32,1) )
+			self.nFrames = int(np.fromfile(f, np.int32,1) )
 			tempReal = np.fromfile(f,np.double, self.points*self.lines )
 			tempImag = np.fromfile(f, np.double, self.points*self.lines )
 			f.close()
@@ -190,18 +208,57 @@ class rfClass(object):
 			self.fs = self.freqstep*self.points
 			self.deltaY = 1540. / (2*self.fs)*10**3
 			self.fovY = self.deltaY*self.points
+
+
+		if self.dataType == 'multiSim':
+			####To get the actual sampling frequency we will zero-pad up to the
+			###desired sampling frequency
+					
+			self.centerFreq = centerFreq #Hz
+			self.sigma = sigma
+			f = open(self.fname, 'rb')
+			
+			import numpy as np
+			#in Hz
+			self.freqstep =float( np.fromfile(f, np.double,1) )
+			self.points = int( np.fromfile(f, np.int32,1) )
+			self.lines = int( np.fromfile(f, np.int32,1) )
+			self.nFrames = int(np.fromfile(f, np.int32, 1) )
+
+			#now jump ahead by as many frames as necessary
+			#assume 64 bit, 8 byte doubles
+			f.seek(8*2*self.points*self.lines*frameNo, 1)
+			#read in desired frame
+			tempReal = np.fromfile(f,np.double, self.points*self.lines )
+			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			f.close()
+		
+			pointsToDesiredFs = int(samplingFrequency/self.freqstep)
+			self.fs = pointsToDesiredFs*self.freqstep
+			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
+					
+			import math
+			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
+			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
+			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
+
+			zeroPadded = np.zeros( (pointsToDesiredFs, self.lines) ) + 1j*np.zeros( (pointsToDesiredFs, self.lines) )
+			zeroPadded[0:self.points, :] = temp	
+			self.data = np.fft.ifft(zeroPadded,axis=0 ).real	
+			self.points = pointsToDesiredFs
+			
+			self.fs = self.freqstep*self.points
+			self.deltaY = 1540. / (2*self.fs)*10**3
+			self.fovY = self.deltaY*self.points
 				
 
 
-	def MakeBmodeImage(self, frameNo = 0):
+	def MakeBmodeImage(self, frameNo = 0, showFig = True):
 		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
 		frames from a data set."""
 		
 		rfClass.bModeImageCount +=1	
-		#Check that a Data set has been loaded
-		import types
-		if type(self.data) == types.NoneType:	
-			self.ReadFrame(frameNo)
+		self.ReadFrame(frameNo)
 		temp = self.data
 
 
@@ -218,7 +275,9 @@ class rfClass(object):
 		fig.canvas.set_window_title("B-mode image " + str(rfClass.bModeImageCount) )
 		ax = fig.add_subplot(1,1,1)
 		ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-		plt.show()			
+		
+		if showFig:
+			plt.show()			
 
 		
 
