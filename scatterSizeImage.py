@@ -13,7 +13,8 @@ class scattererSizeClass(attenuation):
 			
 		super(scattererSizeClass, self).__init__(sampleName, refName, dataType,  numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 )				
 		#Get backscatter coefficients of the reference phantom in the same analysis range as the frequency Kernel
-		from scipy.interplate import interp1d
+		import numpy
+		from scipy.interpolate import interp1d
 		bscNew = interp1d(numpy.arange(0,len(bscCoefficients))*stepFreq + startFreqBsc, bscCoefficients)
 		self.bscReference = bscNew(self.spectrumFreq)
 

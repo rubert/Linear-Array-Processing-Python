@@ -1,134 +1,15 @@
 from rfData import rfClass
 
-class powerSpectrum(rfClass):
+class collapsedAverageImage(rfClass):
 
-	def CalculatePowerSpectrum(self, show = True):
-		'''Give a power spectrum for the RF data using Welch's method'''
-
-
-		from numpy import fft,zeros, arange,log10
-		from scipy import signal
-		from matplotlib import pyplot
-		
-		self.ReadFrame()
-		#going to use half the window size for Welch method
-		windowY = max(rfClass.roiY) - min(rfClass.roiY)
-		welchSub = windowY/2
-		welchStep = welchSub/2
-
-		tempLow = min(rfClass.roiY)
-		tempAverage = zeros( welchSub )
-		win = signal.hamming(welchSub)
-		#loop through welch sub-windows
-		for sw in range(4): #0,1,2,3
-			temp = self.data[tempLow:tempLow + welchSub, min(rfClass.roiX):max(rfClass.roiX)]*win.reshape((welchSub,1))
-			temp = temp - temp.mean(axis = 0)
-			fourierData =fft.fft(temp, axis = 0)
-			tempAverage += abs(fourierData).mean(axis = 1)
-			tempLow = tempLow + welchStep
-		
-		#Work out sampling for DFT
-		T = welchSub/self.fs
-		deltaF = 1/T
-		freqRange = deltaF*welchSub
-		self.spectrumFrequencies = arange(0, freqRange, deltaF)/1E6
-		self.spectrum = tempAverage
-		specTemp = 20*log10(self.spectrum + 1E-5)
-		specTemp -= specTemp.max()
-		if show:
-			#show power spectrum
-			fig = pyplot.figure() 
-			ax = fig.add_subplot(1,1,1)
-			ax.plot(self.spectrumFrequencies[0:welchSub/2], specTemp[0:welchSub/2])
-			ax.set_title('Spectrum magnitude(dB) versus Frequency (MHz)')
-			pyplot.show()
-
-
-	def Calculate_minus3dB_bandwidth(self):
-		from numpy import log10	
-		self.spectrum = 20*log10(self.spectrum)
-		self.spectrum = self.spectrum - self.spectrum.max()
-		self.minus3dBLow = 0
-		self.minus3dBHigh = len(self.spectrum)-1
-		
-		currentDiffLow = 999.
-		currentDiffHigh = 999.
-
-		halfF = len(self.spectrumFrequencies)/2
-		for f in range(halfF/2):
-			if abs(self.spectrum[f] - (-3)) < currentDiffLow:
-				currentDiffLow = abs(self.spectrum[f] - (-3))
-				self.minus3dBLow = f
-			if abs(self.spectrum[-1-halfF-f] - (-3)) < currentDiffHigh:
-				currentDiffHigh = abs(self.spectrum[-1-f] - (-3) )
-				self.minus3dBHigh = -1-halfF-f
-
-
-		
-	def WriteSpectrumToFile(self, fname, title = ' '):
-		'''Write the power spectrum and the analysis region to file'''
-
-		from numpy import fft,zeros, arange
-		from scipy import signal
-		from matplotlib import pyplot
-		
-		self.ReadFrame()
-		#going to use half the window size for Welch method
-		windowY = max(rfClass.roiY) - min(rfClass.roiY)
-		welchSub = windowY/2
-		welchStep = welchSub/2
-
-		tempLow = min(rfClass.roiY)
-		tempAverage = zeros( welchSub )
-		win = signal.hamming(welchSub)
-		#loop through welch sub-windows
-		for sw in range(4): #0,1,2,3
-			fourierData =fft.fft(self.data[tempLow:tempLow + welchSub, min(rfClass.roiX):max(rfClass.roiX)]*win.reshape((welchSub,1)), axis = 0)
-			tempAverage += abs(fourierData).mean(axis = 1)
-			tempLow = tempLow + welchStep
-		
-		#Work out sampling for DFT
-		T = welchSub/self.fs
-		deltaF = 1/T
-		freqRange = deltaF*welchSub
-		#show power spectrum
-		from matplotlib.font_manager import FontProperties
-
-		fig = pyplot.figure() 
-		fig.canvas.set_window_title(title)
-		ax = fig.add_subplot(1,2,1)
-		f = arange(0, freqRange, deltaF)/1E6
-		ax.plot(f[0:welchSub/2], tempAverage[0:welchSub/2])
-		ax.set_title('Spectrum vs Frequency (MHz)')
-		bMode = self.createRoiArray()	
-		#import matplotlib and create plot
-		import matplotlib.pyplot as plt
-		import matplotlib.cm as cm
-		palette = cm.gray
-		palette.set_bad('r')
-
-		ax2 = fig.add_subplot(1,2,2)
-		ax2.set_title('Analysis Region')
-		ax2.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
-		#Add title above all else	
-		t = fig.text(0.5,
-		0.95, title,
-		horizontalalignment='center',
-		fontproperties=FontProperties(size=16))
-		pyplot.savefig(fname)	
-		pyplot.show()	
-	
-
-	def ComputeCollapsedAverageImage(self):
+	def ComputeCollapsedAverageImage(self, windowYmm = 8, windowXmm = 8, overlapY = .75, overlapX = .75):
 		'''Using 4 mm by 4 mm windows, create a collapsed average image.'''
 
 		import numpy
 		self.ReadFrame()
 		#figure out how many 6 mm by 4 mm windows fit into image		
-		overlapY = .75
-		overlapX = .75
-		windowX =int( 8/self.deltaX)
-		windowY =int( 8/self.deltaY)
+		windowX =int( windowYmm/self.deltaX)
+		windowY =int( windowXmm/self.deltaY)
 		
 		#make the windows odd numbers
 		if not windowY%2:
