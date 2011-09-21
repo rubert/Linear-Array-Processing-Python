@@ -4,7 +4,7 @@ class rfClass(object):
 	roiY = None
 	bModeImageCount = 0
 		
-	def __init__(self, filename, dataType):
+	def __init__(self, filename, dataType, centerFreqSimulation = 5.0, sigmaSimulation = 1.0, fsSimulation = 40.0):
 		'''Input:  
 		   filename:  The name of the file or directory the data is from 
 		   dataType:  A lowercase string indicating the type of the data, choices are: 
@@ -95,7 +95,10 @@ class rfClass(object):
 			tempReal = np.fromfile(f,np.double, self.points*self.lines )
 			tempImag = np.fromfile(f, np.double, self.points*self.lines )
 			f.close()
-			
+		
+			self.simFs = fsSimulation
+			self.sigma = sigmaSimulation
+			self.centerFreq = centerFreqSimulation
 			self.deltaX = .2  #beamspacing in mm
 			self.fovX = self.lines*self.deltaX
 
@@ -113,11 +116,14 @@ class rfClass(object):
 			tempImag = np.fromfile(f, np.double, self.points*self.lines )
 			f.close()
 			
+			self.simFs = fsSimulation
+			self.sigma = sigmaSimulation
+			self.centerFreq = centerFreqSimulation
 			self.deltaX = .2  #beamspacing in mm
 			self.fovX = self.lines*self.deltaX
 					
 			
-	def ReadFrame(self, frameNo = 0, centerFreq = 5.0E6, sigma = 1.0E6, samplingFrequency = 40.0E6):
+	def ReadFrame(self, frameNo = 0):
 		'''Read a single frame from the input file, the method varies depending on the file type that
 		was read in.  This can handle linear array data from the Seimens S2000 recorded in either mode
 		or the Ultrasonix scanner recorded using the clinical software.
@@ -177,31 +183,28 @@ class rfClass(object):
 			####To get the actual sampling frequency we will zero-pad up to the
 			###desired sampling frequency
 					
-			self.centerFreq = centerFreq #Hz
-			self.sigma = sigma
 			f = open(self.fname, 'rb')
 			
 			import numpy as np
 			#in Hz
 			self.freqstep =float( np.fromfile(f, np.double,1) )
-			self.points = int( np.fromfile(f, np.int32,1) )
+			tmpPoints = int( np.fromfile(f, np.int32,1) )
 			self.lines = int( np.fromfile(f, np.int32,1) )
-			tempReal = np.fromfile(f,np.double, self.points*self.lines )
-			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			tempReal = np.fromfile(f,np.double, tmpPoints*self.lines )
+			tempImag = np.fromfile(f, np.double, tmpPoints*self.lines )
 			f.close()
 		
-		
-			pointsToDesiredFs = int(samplingFrequency/self.freqstep)
+			pointsToDesiredFs = int(self.simFs*10**6/self.freqstep)
 			self.fs = pointsToDesiredFs*self.freqstep
-			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
+			self.freqData = (tempReal - 1j*tempImag).reshape( (tmpPoints, self.lines), order = 'F' )
 					
 			import math
-			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
-			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
-			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
+			f = np.arange(0,tmpPoints*self.freqstep, self.freqstep)
+			self.pulseSpectrum = np.exp(-(f - self.centerFreq*10**6)*(f - self.centerFreq*10**6)/(2*(self.sigma*10**6)**2) )
+			temp = self.freqData*self.pulseSpectrum.reshape( (tmpPoints, 1) )	
 
 			zeroPadded = np.zeros( (pointsToDesiredFs, self.lines) ) + 1j*np.zeros( (pointsToDesiredFs, self.lines) )
-			zeroPadded[0:self.points, :] = temp	
+			zeroPadded[0:tmpPoints, :] = temp	
 			self.data = np.fft.ifft(zeroPadded,axis=0 ).real	
 			self.points = pointsToDesiredFs
 			
@@ -214,36 +217,33 @@ class rfClass(object):
 			####To get the actual sampling frequency we will zero-pad up to the
 			###desired sampling frequency
 					
-			self.centerFreq = centerFreq #Hz
-			self.sigma = sigma
 			f = open(self.fname, 'rb')
 			
 			import numpy as np
 			#in Hz
 			self.freqstep =float( np.fromfile(f, np.double,1) )
-			self.points = int( np.fromfile(f, np.int32,1) )
+			tmpPoints = int( np.fromfile(f, np.int32,1) )
 			self.lines = int( np.fromfile(f, np.int32,1) )
 			self.nFrames = int(np.fromfile(f, np.int32, 1) )
 
 			#now jump ahead by as many frames as necessary
 			#assume 64 bit, 8 byte doubles
-			f.seek(8*2*self.points*self.lines*frameNo, 1)
+			f.seek(8*2*tmpPoints*self.lines*frameNo, 1)
 			#read in desired frame
-			tempReal = np.fromfile(f,np.double, self.points*self.lines )
-			tempImag = np.fromfile(f, np.double, self.points*self.lines )
+			tempReal = np.fromfile(f,np.double, tmpPoints*self.lines )
+			tempImag = np.fromfile(f, np.double, tmpPoints*self.lines )
 			f.close()
 		
-			pointsToDesiredFs = int(samplingFrequency/self.freqstep)
+			pointsToDesiredFs = int(self.simFs*10**6/self.freqstep)
 			self.fs = pointsToDesiredFs*self.freqstep
-			self.freqData = (tempReal - 1j*tempImag).reshape( (self.points, self.lines), order = 'F' )
+			self.freqData = (tempReal - 1j*tempImag).reshape( (tmpPoints, self.lines), order = 'F' )
 					
 			import math
-			f = np.arange(0,(self.points)*self.freqstep, self.freqstep)
-			self.pulseSpectrum = np.exp(-(f - self.centerFreq)*(f - self.centerFreq)/(2*self.sigma**2) )
-			temp = self.freqData*self.pulseSpectrum.reshape( (self.points, 1) )	
-
+			f = np.arange(0,tmpPoints*self.freqstep, self.freqstep)
+			self.pulseSpectrum = np.exp(-(f - self.centerFreq*10**6)*(f - self.centerFreq*10**6)/(2*(self.sigma*10**6)**2) )
+			temp = self.freqData*self.pulseSpectrum.reshape( (tmpPoints, 1) )	
 			zeroPadded = np.zeros( (pointsToDesiredFs, self.lines) ) + 1j*np.zeros( (pointsToDesiredFs, self.lines) )
-			zeroPadded[0:self.points, :] = temp	
+			zeroPadded[0:tmpPoints, :] = temp	
 			self.data = np.fft.ifft(zeroPadded,axis=0 ).real	
 			self.points = pointsToDesiredFs
 			

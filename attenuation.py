@@ -2,7 +2,7 @@ from rfData import rfClass
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 ):
+	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -30,12 +30,12 @@ class attenuation(rfClass):
 					'''
 		import numpy
 	
-		super(attenuation, self).__init__(sampleName, dataType)
+		super(attenuation, self).__init__(sampleName, dataType, centerFreqSimulation, sigmaSimulation)
 		
 		#For data from clinical scanners the reference and sample data will be the same file
 		#type.  For simulations I will be using a different file type
 		if dataType == 'sim':
-			self.refRf = rfClass(refName, 'multiSim')
+			self.refRf = rfClass(refName, 'multiSim', centerFreqSimulation, sigmaSimulation)
 		else:	
 			self.refRf = rfClass(refName, dataType)
 		
@@ -189,7 +189,7 @@ class attenuation(rfClass):
 		self.refSpectrum = numpy.zeros((self.bartlettY, len(self.blockCenterY) ))
 	
 		for im in range(self.numRefFrames):
-			self.ReadFrame(im)	
+			self.refRf.ReadFrame(im)	
 			for countY,y in enumerate(self.blockCenterY):
 				maxDataWindow = self.refRf.data[y - self.halfY:y + self.halfY+1, :]
 				fftRef = self.CalculateSpectrumBlock(maxDataWindow)
@@ -273,7 +273,6 @@ class attenuation(rfClass):
 			dataWindow = maxDataWindow[(points/2)*f:(points/2)*f + points, :]*windowFunc	
 			
 			for l in range(dataWindow.shape[1]):
-				tmp = abs(chirpz(dataWindow[:,l], self.cztA, self.cztW, points))
-				fftSample += convolve(tmp**2 , numpy.ones(self.freqSmoothingPoints), mode = 'same' )
+				fftSample += abs(chirpz(dataWindow[:,l], self.cztA, self.cztW, points))**2
 	
 		return fftSample	
