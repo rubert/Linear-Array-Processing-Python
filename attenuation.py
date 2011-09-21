@@ -46,7 +46,6 @@ class attenuation(rfClass):
 			
 		
 		#read in frames
-		if dataType == 'sim':
 		self.refRf.ReadFrame()
 		self.ReadFrame()
 		#Check to see that reference data and sample data contain

@@ -3,7 +3,22 @@ from attenuation import attenuation
 from faranScattering import faranBsc
 
 class scattererSizeClass(attenuation):
+	
+	def __init__(self, sampleName, refName, dataType, bscCoefficients, startFreqBsc, stepFreq, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 ):
+		
+		'''The additional information this code needs on top of attenuation is a set of theoretical
+		backscatter coefficients to match against, and the backscatter coefficients of the
+		reference phantom.'''
+		
 			
+		super(scattererSizeClass, self).__init__(sampleName, refName, dataType,  numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25 )				
+		#Get backscatter coefficients of the reference phantom in the same analysis range as the frequency Kernel
+		from scipy.interplate import interp1d
+		bscNew = interp1d(numpy.arange(0,len(bscCoefficients))*stepFreq + startFreqBsc, bscCoefficients)
+		self.bscReference = bscNew(self.spectrumFreq)
+
+
+
 	def ComputeBscImage(self, convertToRgb = True, vmin = None, vmax = None):
 		'''First compute the attenuation image, then use the attenuation image and the
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
@@ -27,7 +42,7 @@ class scattererSizeClass(attenuation):
 				betaDiff = self.attenuationImage[0:yParam + 1,xParam].mean()	
 				betaDiff /= 8.686
 				depthCm = (self.deltaY*yRf)/10
-				rpmSpectrum = self.sampleSpectrum[:,yParam + self.halfLsq,xParam]/self.refSpectrum[:,yParam]*numpy.exp(-4*betaDiff*depthCm*self.spectrumFreq)
+				rpmSpectrum = self.sampleSpectrum[:,yParam + self.halfLsq,xParam]/self.refSpectrum[:,yParam]*numpy.exp(4*betaDiff*depthCm*self.spectrumFreq)*self.bscReference
 				diffs = self.ComputeBscCoefficients(rpmSpectrum )		
 				self.scatSizeImage[yParam, xParam] = self.bscFaranSizes[diffs.argmin()]	
 			
