@@ -38,13 +38,19 @@ class attenuation(rfClass):
 			self.refRf = rfClass(refName, 'multiSim', centerFreqSimulation, sigmaSimulation)
 		else:	
 			self.refRf = rfClass(refName, dataType)
-		
+	
+		#Work out which reference frames to use.  First make sure that I haven't selected too many
+		#to use
 		if numRefFrames >= 1 and numRefFrames < self.refRf.nFrames:	
 			self.numRefFrames = numRefFrames	
 		else:
 			self.numRefFrames = self.refRf.nFrames
-			
 		
+		#Next, instead of picking adjacent reference frames, use reference frames that are evenly spaced
+		#throughout the data set, to get beamlines as uncorrelated as possible
+		self.refFrameStep = self.refRf.nFrames//numRefFrames 
+		self.refFrames = numpy.arange(0,numRefFrames)*self.refFrameStep
+			
 		#read in frames
 		self.refRf.ReadFrame()
 		self.ReadFrame()
@@ -121,7 +127,7 @@ class attenuation(rfClass):
 			
 	
 	
-	def CalculateAttenuationImage(self,convertToRgb = True ):
+	def CalculateAttenuationImage(self):
 		'''Estimate the center frequency by fitting to a Gaussian'''
 		'''Loop through the image and calculate the spectral shift at each depth.
 		Perform the operation 1 A-line at a time to avoid repeating calculations.
@@ -176,8 +182,7 @@ class attenuation(rfClass):
 		
 		print "Mean attenuation value of: " + str( self.attenuationImage.mean() )
 		
-		if convertToRgb:
-			self.attenuationImage = self.CreateParametricImage(self.attenuationImage,[startY, startX], [stepY, stepX] )
+		self.attenuationImageRGB = self.CreateParametricImage(self.attenuationImage,[startY, startX], [stepY, stepX] )
 
 	def ComputeReferenceSpectrum(self):
 
@@ -188,7 +193,7 @@ class attenuation(rfClass):
 		import numpy
 		self.refSpectrum = numpy.zeros((self.bartlettY, len(self.blockCenterY) ))
 	
-		for im in range(self.numRefFrames):
+		for im in self.refFrames:
 			self.refRf.ReadFrame(im)	
 			for countY,y in enumerate(self.blockCenterY):
 				maxDataWindow = self.refRf.data[y - self.halfY:y + self.halfY+1, :]

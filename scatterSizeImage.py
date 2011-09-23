@@ -21,34 +21,40 @@ class scattererSizeClass(attenuation):
 		self.bscFaranSizes = numpy.arange(1,150)
 
 
-	def ComputeScattererSizeImage(self, convertToRgb = True, vmin = None, vmax = None):
+	def ComputeScattererSizeImage(self, vmin = None, vmax = None):
 		'''First compute the attenuation image, then use the attenuation image and the
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
-		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.'''
+		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.
+		Assume the attenuation outside the known region of the attenuation image is equal to the mean
+		of the attenuation image.'''
 		
 		import numpy
 
-		self.CalculateAttenuationImage(convertToRgb = False)
-		from matplotlib import pyplot
-		import pdb
-		pdb.set_trace()
+		self.CalculateAttenuationImage()
 		
 		self.InitializeTheoreticalBackscatter()
-		numY = len(self.attenCenterY)
+		numY = len(self.blockCenterY)
 		numX = len(self.blockCenterX)
 		self.scatSizeImage = numpy.zeros( (numY, numX) )	
-		startY = self.attenCenterY[0] 
+		startY = self.blockCenterY[0] 
 		startX = self.blockCenterX[0]
-		stepY = self.attenCenterY[1] - self.attenCenterY[0]
+		stepY = self.blockCenterY[1] - self.blockCenterY[0]
 		stepX = self.blockCenterX[1] - self.blockCenterX[0]
 
-		
-		for yParam,yRf in enumerate(self.attenCenterY):
-			for xParam, xRf in enumerate(self.blockCenterX):
-				betaDiff = self.attenuationImage[0:yParam + 1,xParam].mean() - self.betaRef	
-				betaDiff /= 8.686
+		#assume sample and reference have same attenuation in out of bounds region.
+		for xParam, xRf in enumerate(self.blockCenterX):
+			for yParam,yRf in enumerate(self.blockCenterY):
+			
+				if yParam < self.halfLsq:
+					betadiff = 0
+				else:
+					tmp = self.attenuationImage[0:yParam - self.halfLsq + 1,xParam].mean()
+					if tmp < 0.:
+						tmp = 0
+					betadiff = tmp - self.betaRef	
+				betadiff /= 8.686
 				depthCm = (self.deltaY*yRf)/10
-				rpmSpectrum = self.sampleSpectrum[:,yParam + self.halfLsq,xParam]/self.refSpectrum[:,yParam + self.halfLsq]*numpy.exp(4*betaDiff*depthCm*self.spectrumFreq)*self.bscReference
+				rpmSpectrum = self.sampleSpectrum[:,yParam,xParam]/self.refSpectrum[:,yParam]*numpy.exp(4*betadiff*depthCm*self.spectrumFreq)*self.bscReference
 				diffs = self.CompareBscCoefficients(rpmSpectrum )		
 				self.scatSizeImage[yParam, xParam] = self.bscFaranSizes[diffs.argmin()]	
 			
@@ -58,8 +64,8 @@ class scattererSizeClass(attenuation):
 			self.scatSizeImage[self.scatSizeImage < vmin] = vmin
 		if vmax:
 			self.scatSizeImage[self.scatSizeImage > vmax] = vmax
-		if convertToRgb:
-			self.scatSizeImage = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
+		
+		self.scatSizeImageRGB = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
 
 	def InitializeTheoreticalBackscatter(self):
 		'''Within the transducer bandwidth calculate the backscatter coefficients over a set of scatter size.
