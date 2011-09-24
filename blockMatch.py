@@ -26,9 +26,23 @@ class UniquePriorityQueue(PriorityQueue):
 class blockMatchClass(rfClass):
 
 
-	def __init__(self, fname, dataType,  windowYmm = 1.0, windowXmm = 10., rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
+	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 10., rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
+	'''Input:
+	fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
+	dataType: (string)  The filetype of the input files, see rfClass for allowed types
+	postFile: (string)  A file of post compression data, the same type and dimensions as the input file
+	windowYmm: (float) the axial window size of the block match window in mm
+	windowXmm: (float)  The lateral window size of the block match window in mm
+	rangeYmm:  (float)  The axial search range for the block match window in mm  
+	rangeXmm:  (float)  The lateral search range for the block match window in mm
+	overlap:  (float)  [0-1].  The axial overlap between block matching windows.
+	strainKernelmm:  (float)  The size of the least squares strain estimation kernel in mm.
 	
+	'''	
 		super(blockMatchClass, self).__init__(fname, dataType)	
+		
+		if postFile:
+			self.postRf = rfClass(postFile, dataType)
 
 		self.windowYmm = windowYmm	
 		self.windowXmm = windowXmm
@@ -121,8 +135,13 @@ class blockMatchClass(rfClass):
 		#get pre and post frame
 		self.ReadFrame(preFrame)
 		self.pre = self.data.copy()
-		self.ReadFrame(postFrame)
-		self.post = self.data.copy()
+		
+		if self.postFile:
+			self.postRf.ReadFrame(preFrame)
+			self.post = self.postRf.data.copy()
+		else:
+			self.ReadFrame(postFrame)
+			self.post = self.data.copy()
 		#Perform tracking
 		self.TrackSeeds()
 		self.TrackNonSeeds()
