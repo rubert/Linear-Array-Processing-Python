@@ -251,6 +251,33 @@ class rfClass(object):
 			self.deltaY = 1540. / (2*self.fs)*10**3
 			self.fovY = self.deltaY*self.points
 				
+	
+	def SaveBModeImages(self, fname):
+
+		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
+		frames from a data set."""
+	
+		from scipy.signal import hilbert
+		from numpy import log10
+		import matplotlib.pyplot as plt
+		import matplotlib.cm as cm
+		
+		for f in range(self.nFrames):	
+			self.ReadFrame(f)
+			temp = self.data
+
+
+			#import signal processing modules and generate Numpy array
+			bMode = log10(abs(hilbert(temp, axis = 0)))
+			bMode = bMode - bMode.max()
+
+			#import matplotlib and create plot
+			fig = plt.figure()
+			ax = fig.add_subplot(1,1,1)
+			ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+			plt.savefig(fname + '_f' + str(f).zfill(3) + '.png')
+			plt.close()	
+
 
 
 	def MakeBmodeImage(self, frameNo = 0, showFig = True):

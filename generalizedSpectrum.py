@@ -2,7 +2,7 @@ from rfData import rfClass
 
 class collapsedAverageImage(rfClass):
 
-	def ComputeCollapsedAverageImage(self, windowYmm = 8, windowXmm = 8, overlapY = .75, overlapX = .75):
+	def ComputeCollapsedAverageImage(self, freqLowMHz = 2.0, freqHighMHz = 12.0, windowYmm = 8, windowXmm = 8, overlapY = .75, overlapX = .75, vMax = None):
 		'''Using 4 mm by 4 mm windows, create a collapsed average image.'''
 
 		import numpy
@@ -21,7 +21,7 @@ class collapsedAverageImage(rfClass):
 		halfY = (windowY -1)/2
 		halfX = (windowX -1)/2
 			
-		#overlap the windows axially by 50%
+		#overlap the windows axially and laterally
 		stepY = int(  (1-overlapY)*windowY )
 		startY = halfY
 		stopY = self.points - halfY - 1
@@ -37,7 +37,25 @@ class collapsedAverageImage(rfClass):
 		self.caImage = numpy.zeros( (numY, numX) )
 		self.caStepX = stepX
 		self.caStepY = stepY
-			
+
+		#Work out parameters for chirpz transform
+		self.freqHigh = freqHighMHz
+		self.freqLow = freqLowMHz	
+		
+		#figure out block size in points
+		self.bartlettY = 2*halfY
+		self.bartlettY -= self.bartlettY%4
+		self.bartlettY /= 2
+		freqStep = (freqHighMHz - freqLowMHz)/self.bartlettY
+		freqStepLowRes = self.fs/(10.**6*self.bartlettY)
+		self.spectrumFreqLowRes	= numpy.arange(self.bartlettY)*freqStepLowRes
+
+		self.spectrumFreq = numpy.arange(0,self.bartlettY)*freqStep  + freqLowMHz	
+		fracUnitCircle = (freqHighMHz - freqLowMHz)/(self.fs/10**6)
+		self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY ) 
+		self.cztA = numpy.exp(1j* (2*numpy.pi*freqLowMHz/(self.fs/10**6) ) )
+
+		
 		#work out time to compute a point, then spit out time to calculate image
 		from time import time
 		y = x = 0
@@ -54,84 +72,102 @@ class collapsedAverageImage(rfClass):
 				self.CalculateGeneralizedSpectrum(region = tempRegion)
 				self.caImage[y,x] = self.areaUnderCA
 		
-			
-		self.caImage = self.CreateParametricImage(self.caImage,[startY, startX], [self.caStepY, self.caStepX] )	
+		if vMax:
+			self.caImage[self.caImage > vMax] = vMax	
+		self.caImageRGB = self.CreateParametricImage(self.caImage,[startY, startX], [self.caStepY, self.caStepX] )	
 	
 	
 	def CalculateGeneralizedSpectrum(self, region):
-		'''Accept a block of data and compute the collapsed average in the region.'''
+		'''Accept a block of data and compute the collapsed average in the region.
+		Average over 3 sub-blocks to compute GS'''
 		
-		import numpy	
-		from scipy.signal import hamming
-
+		from scipy.signal import hann,convolve
+		import numpy
+		from chirpz import chirpz
 		points = region.shape[0]
 		points -= points%4
-		maxDataWindow = region[0:points, :]
 		points /= 2
 		
+		maxDataWindow = region[0:2*points, :]
+
+		#compute 3 fourier transforms and average them	
+		#Cutting off the zero-value end points of the hann window
+		#so it matches Matlab's definition of the function
+		windowFunc = hann(points+2)[1:-1].reshape(points,1)
+	
+		##############
+		###BLOCK 1####
+		##############
 		#Work out the delay between the first point and the maximum intensity point
-		windowFunc = hamming(points).reshape(points,1)
 		dataWindow = maxDataWindow[0:points, :]*windowFunc	
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData =numpy.fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
 		tempLines = dataWindow.shape[1]
 		
+		fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
+		for l in range(tempLines):	
+			fourierData[:,l] = chirpz(dataWindow[:,l], self.cztA, self.cztW, points)
+		
+	
+		#get point delay in seconds	
+		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq =numpy.arange(0, self.fs, deltaF)
-		delta = numpy.outer(freq,maxPointDelay)
+		delta = numpy.outer(self.spectrumFreq*10**6,maxPointDelay)
 		phase = numpy.exp(1j*2*numpy.pi*delta)	
 		gsList1 = []
 		
 		for l in range(tempLines):
 			outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
 			outerProd /= abs(outerProd)
 			outerProd[outerProd == numpy.nan] = 0. + 1j*0.
 			gsList1.append(outerProd.copy() )
 
+		############
+		###BLOCK 2##
+		############
 		#step ahead by 50% the window size and add in more contributions
 		dataWindow = maxDataWindow[points/2: points/2 + points, :]*windowFunc
-		
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData =numpy.fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
 		tempLines = dataWindow.shape[1]
+		fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
+		for l in range(tempLines):	
+			fourierData[:,l] = chirpz(dataWindow[:,l], self.cztA, self.cztW, points)
+	
+		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
+		
 
 		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq = numpy.arange(0, self.fs, deltaF)
-		delta = numpy.outer(freq,maxPointDelay)
+		deltaF = self.spectrumFreq[1] - self.spectrumFreq[0]
+		delta = numpy.outer(self.spectrumFreq*10**6,maxPointDelay)
 		phase = numpy.exp(1j*2*numpy.pi*delta)	
 	
 		gsList2 = []	
 		for l in range(tempLines):
 			outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
 			outerProd /= abs(outerProd)
 			outerProd[outerProd == numpy.nan] = 0. + 1j*0.
 			gsList2.append(outerProd)
 
 
+		############
+		###BLOCK 3##
+		############
 		#step ahead by 50% the window size and add in more contributions
 		dataWindow = maxDataWindow[points:2*points, :]*windowFunc		
-		
-		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-		fourierData =numpy.fft.fft(dataWindow, axis = 0)
 		tempPoints = dataWindow.shape[0]
 		tempLines = dataWindow.shape[1]
+		fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
+		for l in range(tempLines):	
+			fourierData[:,l] = chirpz(dataWindow[:,l], self.cztA, self.cztW, points)
 
+		maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
 		#Work out frequency spacing for DFT points
-		deltaF = self.fs/dataWindow.shape[0]
-		freq = numpy.arange(0, self.fs, deltaF)
-		delta = numpy.outer(freq,maxPointDelay)
+		deltaF = self.spectrumFreq[1] - self.spectrumFreq[0]
+		delta = numpy.outer(self.spectrumFreq*10**6,maxPointDelay)
 		phase = numpy.exp(1j*2*numpy.pi*delta)	
 	
 		gsList3 = []	
 		for l in range(tempLines):
 			outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-			outerProd[abs(outerProd) < 1E-8] =  0. + 1j*0.
 			outerProd /= abs(outerProd)
 			outerProd[outerProd == numpy.nan] = 0. + 1j*0.
 			gsList3.append(outerProd)
@@ -140,6 +176,7 @@ class collapsedAverageImage(rfClass):
 		for l in range(tempLines):
 			GS += gsList1[l] + gsList2[l] + gsList3[l]
 
+		
 		######################################################
 		########scale GS by its standard deviation############
 		######################################################
@@ -150,29 +187,21 @@ class collapsedAverageImage(rfClass):
 		
 		SL = numpy.sqrt( (1/(tempPoints*tempLines*3 - 1) )*SL )
 
-		for f1 in range(len(freq)):
-			for f2 in range(len(freq)):	
+		for f1 in range(len(self.spectrumFreq)):
+			for f2 in range(len(self.spectrumFreq)):	
 				if abs(SL[f1,f2]) > 1.E-8:
 					GS[f1,f2] /= abs(SL[f1,f2])	
 	
-		#only show min:max MHz
-		minFMHz = 5.
-		maxFMHz = 13.
-		fIndexMax = int(maxFMHz*1.E6/deltaF)
-		fIndexMin = int(minFMHz*1.E6/deltaF)
-				
-		gsDb = abs(GS)
-		gsDb -= gsDb.max()
 
 
 		########################################
 		########COMPUTE COLLAPSED AVERAGE#######
 		########################################
-		numFreq = len(range(fIndexMin, fIndexMax))	
+		numFreq = len(self.spectrumFreq)	
 		counts = numpy.zeros(numFreq)
 		CA = numpy.zeros(numFreq) + 1j*numpy.zeros(numFreq)
-		for f1 in range(fIndexMin,fIndexMax):
-			for f2 in range(fIndexMin, fIndexMax):
+		for f1 in range(numFreq):
+			for f2 in range(numFreq):
 				d = abs(f2-f1)		
 				if d < numFreq:
 					CA[d] += GS[f1,f2]
@@ -180,14 +209,9 @@ class collapsedAverageImage(rfClass):
 
 
 		self.CA = abs(CA)/counts
-		self.freqDiff = numpy.arange(0, numFreq)*deltaF/1.E6
-
-		#normalize to value at origin
-		self.CA = self.CA/self.CA[0]
 
 		#compute area under the collapsed average curve
 		self.areaUnderCA = 0.
 
 		for point in range(len(self.CA) - 1):
-			self.areaUnderCA += (self.CA[point] + self.CA[point + 1])/2*deltaF/1.E6
-
+			self.areaUnderCA += (self.CA[point] + self.CA[point + 1])/2

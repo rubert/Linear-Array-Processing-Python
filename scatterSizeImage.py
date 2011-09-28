@@ -2,20 +2,20 @@ from rfData import rfClass
 from attenuation import attenuation
 from faranScattering import faranBsc
 
-class scattererSizeClass(attenuation):
+class scatterSizeClass(attenuation):
 	
-	def __init__(self, sampleName, refName, dataType, bscCoefficients, startFreqBsc, stepFreq, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
+	def __init__(self, sampleName, refName, dataType, bscCoefficients, bscFreqArray, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, bscFitRadius = 1.0, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
 		
 		'''The additional information this code needs on top of attenuation is a set of theoretical
 		backscatter coefficients to match against, and the backscatter coefficients of the
 		reference phantom.'''
 		
 			
-		super(scattererSizeClass, self).__init__(sampleName, refName, dataType,  numRefFrames, refAttenuation, freqLow, freqHigh, attenuationKernelSizeYmm, blockYmm, blockXmm, overlapY , overlapX , frequencySmoothingKernel, centerFreqSimulation, sigmaSimulation )				
+		super(scatterSizeClass, self).__init__(sampleName, refName, dataType,  numRefFrames, refAttenuation, freqLow, freqHigh, attenuationKernelSizeYmm, blockYmm, blockXmm, overlapY , overlapX , bscFitRadius, centerFreqSimulation, sigmaSimulation )				
 		#Get backscatter coefficients of the reference phantom in the same analysis range as the frequency Kernel
 		import numpy
 		from scipy.interpolate import interp1d
-		bscNew = interp1d(numpy.arange(0,len(bscCoefficients))*stepFreq + startFreqBsc, bscCoefficients)
+		bscNew = interp1d(bscFreqArray, bscCoefficients)
 		self.bscReference = bscNew(self.spectrumFreq)
 
 		self.bscFaranSizes = numpy.arange(1,150)
@@ -31,7 +31,7 @@ class scattererSizeClass(attenuation):
 		import numpy
 
 		self.CalculateAttenuationImage()
-		
+				
 		self.InitializeTheoreticalBackscatter()
 		numY = len(self.blockCenterY)
 		numX = len(self.blockCenterX)
@@ -55,7 +55,14 @@ class scattererSizeClass(attenuation):
 				betadiff /= 8.686
 				depthCm = (self.deltaY*yRf)/10
 				rpmSpectrum = self.sampleSpectrum[:,yParam,xParam]/self.refSpectrum[:,yParam]*numpy.exp(4*betadiff*depthCm*self.spectrumFreq)*self.bscReference
-				diffs = self.CompareBscCoefficients(rpmSpectrum )		
+				middleInd = self.refSpectrum[:,yParam].argmax()
+				lowInd = middleInd - self.radiusInPoints
+				if lowInd < 0:
+					lowInd = 0
+				highInd = middleInd + self.radiusInPoints
+				if highInd > self.refSpectrum.shape[0]:
+					highInd = self.refSpectrum.shape[0]
+				diffs = self.CompareBscCoefficients(rpmSpectrum , lowInd, highInd)		
 				self.scatSizeImage[yParam, xParam] = self.bscFaranSizes[diffs.argmin()]	
 			
 		print "Mean Scatterer size is: " + str(self.scatSizeImage.mean())	
@@ -85,7 +92,7 @@ class scattererSizeClass(attenuation):
 			self.bscCurveFaranList.append( tempBsc.copy())
 
 	
-	def CompareBscCoefficients(self, BSCs):
+	def CompareBscCoefficients(self, BSCs, startIndex, stopIndex):
 		'''Compute a theoretical backscatter curve over the transducer bandwidth.  Find the 
 		logarithm of the difference between the two curves. 
 		 
@@ -95,13 +102,18 @@ class scattererSizeClass(attenuation):
 			
 		Output:  Error and corresponding scatterer sizes'''
 		import numpy
-		
-		
+	
+		if startIndex < 0:
+			startIndex = 0
+		if stopIndex > len(BSCs):
+			stopIndex = len(BSCs)
+				
+		#Work out start index and stop index	
 		mmse = numpy.zeros( len(self.bscCurveFaranList) )
 		for count,BSCt in enumerate(self.bscCurveFaranList):
 
 			#Added small number to avoid taking logarithm of zero
-			psi = 10*numpy.log(BSCs) - 10*numpy.log(BSCt)
+			psi = 10*numpy.log(BSCs[startIndex:stopIndex]) - 10*numpy.log(BSCt[startIndex:stopIndex])
 			psiHat = psi.mean()
 			mmse[count] = ((psi - psiHat)**2).mean()
 

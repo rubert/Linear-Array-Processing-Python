@@ -7,19 +7,39 @@ import numpy as np
 
 class UniquePriorityQueue(PriorityQueue):
     def _init(self, maxsize):
+        '''This is meant to take in tuples of
+        (-quality, locInd, iniDpY, iniDpX, region)'''
         PriorityQueue._init(self, maxsize)
-        self.values = set()
+        self.locations = []
+	self.itemsInQueue = []
 
     def _put(self, item, heappush=heapq.heappush):
-        if item[1] not in self.values:
-            self.values.add(item[1])
+        #unique items added to list without checks
+	if item[1] not in self.locations:
+            self.locations.append(item[1])
+	    self.itemsInQueue.append(item)
             PriorityQueue._put(self, item, heappush)
-#        else:  I should check to see if the quality is better, if so, remove old item
-#            print 'dupe',item[1]
+	
+	#if already in list, then only insert if
+	#quality is higher than what is already in list
+        elif item[1] in self.locations:
+	    if abs(item[0]) < abs( self.itemsInQueue[ self.locations.index(item[1]) ][0] ):
+		    pass #no insertion, correlation is lower than what is already in list
+	    else:
+
+		tmpItem = self.itemsInQueue.pop( self.locations.index(item[1]) )
+		self.queue.remove( tmpItem )
+		self.locations.remove(item[1])
+
+                self.locations.append(item[1])
+	        self.itemsInQueue.append(item)
+                PriorityQueue._put(self, item, heappush)
+
 
     def _get(self, heappop=heapq.heappop):
         item = PriorityQueue._get(self, heappop)
-        self.values.remove(item[1])
+	self.itemsInQueue.pop( self.locations.index(item[1]) )
+	self.locations.remove(item[1])
         return item
 
 
@@ -27,23 +47,24 @@ class blockMatchClass(rfClass):
 
 
 	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 10., rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
-	'''Input:
-	fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
-	dataType: (string)  The filetype of the input files, see rfClass for allowed types
-	postFile: (string)  A file of post compression data, the same type and dimensions as the input file
-	windowYmm: (float) the axial window size of the block match window in mm
-	windowXmm: (float)  The lateral window size of the block match window in mm
-	rangeYmm:  (float)  The axial search range for the block match window in mm  
-	rangeXmm:  (float)  The lateral search range for the block match window in mm
-	overlap:  (float)  [0-1].  The axial overlap between block matching windows.
-	strainKernelmm:  (float)  The size of the least squares strain estimation kernel in mm.
-	
-	'''	
+		'''Input:
+		fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
+		dataType: (string)  The filetype of the input files, see rfClass for allowed types
+		postFile: (string)  A file of post compression data, the same type and dimensions as the input file
+		windowYmm: (float) the axial window size of the block match window in mm
+		windowXmm: (float)  The lateral window size of the block match window in mm
+		rangeYmm:  (float)  The axial search range for the block match window in mm  
+		rangeXmm:  (float)  The lateral search range for the block match window in mm
+		overlap:  (float)  [0-1].  The axial overlap between block matching windows.
+		strainKernelmm:  (float)  The size of the least squares strain estimation kernel in mm.
+		
+		'''	
 		super(blockMatchClass, self).__init__(fname, dataType)	
 		
 		if postFile:
 			self.postRf = rfClass(postFile, dataType)
-
+		else:
+			self.postRf = None
 		self.windowYmm = windowYmm	
 		self.windowXmm = windowXmm
 		self.rangeYmm =  rangeYmm
@@ -99,6 +120,10 @@ class blockMatchClass(rfClass):
 		self.halfLsq = self.strainWindow//2	
 		self.strainwindowmm = self.strainWindow*self.deltaY*self.stepY
 			
+	def InitializeArrays(self):
+		'''Called to clear out displacement and quality arrays if
+		I'm looking at a sequence of strain images.'''
+	
 	######allocate numpy arrays to store quality, dpy, dpx
 		self.dpY = np.zeros( (self.numY, self.numX) )
 		self.dpX = np.zeros( (self.numY, self.numX) )
@@ -128,7 +153,6 @@ class blockMatchClass(rfClass):
 	#for determining bad seeds
 		self.threshold = round( (self.numY/10)*(self.numX/10) )
 
-
 	def CreateStrainImage(self, preFrame = 0, postFrame = 1, vMax = .02):
 		'''With the given parameters, pre, and post RF data create a strain image.'''
 
@@ -136,12 +160,14 @@ class blockMatchClass(rfClass):
 		self.ReadFrame(preFrame)
 		self.pre = self.data.copy()
 		
-		if self.postFile:
+		if self.postRf:
 			self.postRf.ReadFrame(preFrame)
 			self.post = self.postRf.data.copy()
 		else:
 			self.ReadFrame(postFrame)
 			self.post = self.data.copy()
+
+		self.InitializeArrays()
 		#Perform tracking
 		self.TrackSeeds()
 		self.TrackNonSeeds()
@@ -150,12 +176,16 @@ class blockMatchClass(rfClass):
 
 		#take the strain image and create a scan-converted strain image.
 		startY =self.windowCenterY[self.halfLsq]
+		startYdp = self.windowCenterY[0]
 		startX =self.windowCenterX[0]
 		stepY =self.stepY
 		stepX =1
 
 		self.strain[self.strain> vMax] = vMax
 		self.strainRGB = self.CreateParametricImage(self.strain,[startY, startX], [stepY, stepX], colormap = 'gray' )
+		self.dpYRGB = self.CreateParametricImage(self.dpY,[startYdp, startX], [stepY, stepX] )
+		self.dpXRGB = self.CreateParametricImage(self.dpX,[startYdp, startX], [stepY, stepX])
+		self.qualityRGB = self.CreateParametricImage(self.quality,[startYdp, startX], [stepY, stepX] )
 
 	
 	def Sub2ind(self,shape, row, col):
@@ -204,7 +234,6 @@ class blockMatchClass(rfClass):
 
 	def TrackSeeds(self):
 		"""Perform block-matching only on the seed points """
-		#pdb.set_trace()
 	#allocate array to hold results of cross correlation
 		resultNp = np.float32( np.zeros( (2*self.rangeY + 1, 2*self.rangeX + 1) ) )
 		resultCv = cv.fromarray(resultNp)
@@ -227,9 +256,9 @@ class blockMatchClass(rfClass):
 				template = cv.fromarray( np.float32(self.pre[startBlockY:stopBlockY, startBlockX:stopBlockX ] )  )
 				
 				startBlockY = self.windowCenterY[y] - self.halfY - self.rangeY
-				stopBlockY = self.windowCenterY[y] + self.halfY + self.rangeY + 1
+				stopBlockY = self.windowCenterY[y] + self.halfY + 1 + self.rangeY 
 				startBlockX = self.windowCenterX[x] - self.halfX - self.rangeX
-				stopBlockX = self.windowCenterX[x] + self.halfX + self.rangeX + 1
+				stopBlockX = self.windowCenterX[x] + self.halfX + 1 + self.rangeX 
 				image = cv.fromarray( np.float32( self.post[startBlockY:stopBlockY, startBlockX:stopBlockX]  )   )
 				
 				cv.MatchTemplate(template, image, resultCv, cv.CV_TM_CCORR_NORMED )
@@ -293,9 +322,9 @@ class blockMatchClass(rfClass):
 			template = cv.fromarray( np.float32(self.pre[startBlockY:stopBlockY, startBlockX:stopBlockX ] )  )
 			
 			startBlockY = self.windowCenterY[y] - self.halfY - self.smallRangeY + iniDpY
-			stopBlockY = self.windowCenterY[y] + self.halfY + self.smallRangeY + iniDpY + 1
+			stopBlockY = self.windowCenterY[y] + self.halfY + self.smallRangeY + 1 + iniDpY 
 			startBlockX = self.windowCenterX[x] - self.halfX - self.smallRangeX + iniDpX
-			stopBlockX = self.windowCenterX[x] + self.halfX + self.smallRangeX + iniDpX + 1
+			stopBlockX = self.windowCenterX[x] + self.halfX + self.smallRangeX + 1 + iniDpX
 			image = cv.fromarray( np.float32( self.post[startBlockY:stopBlockY, startBlockX:stopBlockX]  )   )
 			
 			cv.MatchTemplate(template, image, resultCv, cv.CV_TM_CCORR_NORMED )
@@ -339,7 +368,7 @@ class blockMatchClass(rfClass):
 			intDpX = int(round(self.dpX[y,x]))
 
 			#PUT ITEM IN SEED LIST
-			self.AddToSeedList(maxCC, y,x, intDpY,intDpX, region) 
+			self.AddToSeedList(maxCC, y, x, intDpY,intDpX, region) 
 
 
 
@@ -393,9 +422,9 @@ class blockMatchClass(rfClass):
 				template = cv.fromarray( np.float32(self.pre[startBlockY:stopBlockY, startBlockX:stopBlockX ] )  )
 				
 				startBlockY = self.windowCenterY[y] - self.halfY - self.smallRangeY + iniDpY
-				stopBlockY = self.windowCenterY[y] + self.halfY + self.smallRangeY + iniDpY + 1
+				stopBlockY = self.windowCenterY[y] + self.halfY + self.smallRangeY + 1 + iniDpY
 				startBlockX = self.windowCenterX[x] - self.halfX - self.smallRangeX + iniDpX
-				stopBlockX = self.windowCenterX[x] + self.halfX + self.smallRangeX + iniDpX + 1
+				stopBlockX = self.windowCenterX[x] + self.halfX + self.smallRangeX + 1 + iniDpX
 				image = cv.fromarray( np.float32( self.post[startBlockY:stopBlockY, startBlockX:stopBlockX]  )   )
 				
 				cv.MatchTemplate(template, image, resultCv, cv.CV_TM_CCORR_NORMED )

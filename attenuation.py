@@ -2,7 +2,7 @@ from rfData import rfClass
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, frequencySmoothingKernel = .25, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
+	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, bscFitRadius = 1.0, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -115,11 +115,11 @@ class attenuation(rfClass):
 		self.blockY -= self.blockY%4
 		self.bartlettY = self.blockY//2
 		self.spectrumFreqStep = (freqHigh - freqLow)/self.bartlettY
+		self.radiusInPoints = int( bscFitRadius/self.spectrumFreqStep)
 		self.spectrumFreq = numpy.arange(0, self.bartlettY)*self.spectrumFreqStep + freqLow
 
-		#frequency smoothing kernel
-		self.freqSmoothingPoints = int(frequencySmoothingKernel/self.spectrumFreqStep)
 
+		
 		#set-up parameters for the chirpZ transform
 		fracUnitCircle = (freqHigh - freqLow)/(self.fs/10**6)
 		self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY ) 
@@ -162,11 +162,21 @@ class attenuation(rfClass):
 		#compute the log ratio
 		#fit the log ratio at each depth to a line
 		#to get derivative with respect to frequency
+		#only look between within a 1 MHz radius of the
+		#PSD peak
+
 		print "Computing log ratios"
 		dFreqLogRatio = numpy.zeros( ( self.refSpectrum.shape[1], numX) )	
 		for countY in range(self.refSpectrum.shape[1]):
 			for countX in range(numX):
-				logRatio = numpy.log( self.sampleSpectrum[:,countY,countX]/self.refSpectrum[:,countY] )
+				middleInd = self.refSpectrum[:,countY].argmax()
+				lowInd = middleInd - self.radiusInPoints
+				if lowInd < 0:
+					lowInd = 0
+				highInd = middleInd + self.radiusInPoints
+				if highInd > self.refSpectrum.shape[0]:
+					highInd = self.refSpectrum.shape[0]
+				logRatio = numpy.log( self.sampleSpectrum[lowInd:highInd,countY,countX]/self.refSpectrum[lowInd:highInd,countY] )
 				dFreqLogRatio[countY, countX] = self.lsqFit(logRatio, self.spectrumFreqStep)
 					
 		print "Performing linear fitting"			
