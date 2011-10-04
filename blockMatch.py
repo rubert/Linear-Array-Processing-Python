@@ -46,7 +46,7 @@ class UniquePriorityQueue(PriorityQueue):
 class blockMatchClass(rfClass):
 
 
-	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 10., rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
+	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 6.0, rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
 		'''Input:
 		fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
 		dataType: (string)  The filetype of the input files, see rfClass for allowed types
@@ -153,7 +153,7 @@ class blockMatchClass(rfClass):
 	#for determining bad seeds
 		self.threshold = round( (self.numY/10)*(self.numX/10) )
 
-	def CreateStrainImage(self, preFrame = 0, postFrame = 1, vMax = .02):
+	def CreateStrainImage(self, preFrame = 0, postFrame = 1, vMax = None, itkFileName = None):
 		'''With the given parameters, pre, and post RF data create a strain image.'''
 
 		#get pre and post frame
@@ -168,6 +168,7 @@ class blockMatchClass(rfClass):
 			self.post = self.data.copy()
 
 		self.InitializeArrays()
+
 		#Perform tracking
 		self.TrackSeeds()
 		self.TrackNonSeeds()
@@ -181,13 +182,35 @@ class blockMatchClass(rfClass):
 		stepY =self.stepY
 		stepX =1
 
-		self.strain[self.strain> vMax] = vMax
+		if vMax:
+			self.strain[self.strain> vMax] = vMax
 		self.strainRGB = self.CreateParametricImage(self.strain,[startY, startX], [stepY, stepX], colormap = 'gray' )
 		self.dpYRGB = self.CreateParametricImage(self.dpY,[startYdp, startX], [stepY, stepX] )
 		self.dpXRGB = self.CreateParametricImage(self.dpX,[startYdp, startX], [stepY, stepX])
 		self.qualityRGB = self.CreateParametricImage(self.quality,[startYdp, startX], [stepY, stepX] )
 
 	
+		#Write image to itk format
+		if itkFileName:
+			if 'mhd' not in itkFileName:
+				itkFilename += '.mhd'
+		
+			import itk
+			itkIm = itk.Image.F2.New()
+			itkIm.SetRegions(self.strain.shape)
+			itkIm.Allocate()
+			for countY in range(self.strain.shape[0]):
+				for countX in range(self.strain.shape[1]):
+					itkIm.SetPixel( [countY, countX], self.strain[countY, countX])
+
+			itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepX] )
+			itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+			writer = itk.ImageFileWriter.IF2.New()
+			writer.SetInput(itkIm)
+			writer.SetFileName(itkFileName)
+			writer.Update()
+
+
 	def Sub2ind(self,shape, row, col):
 		"""Takes shape as a tuple with two entries"""
 
@@ -405,7 +428,6 @@ class blockMatchClass(rfClass):
 
 		while self.seedList.qsize() > 0:
 		
-			#pdb.set_trace()	
 			(tempQuality, pointInd, iniDpY, iniDpX, region) = self.seedList.get()
 			(y,x) = np.unravel_index(pointInd, self.dpY.shape)
 			self.processed[y,x] = 1

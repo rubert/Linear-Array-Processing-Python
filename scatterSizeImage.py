@@ -21,7 +21,7 @@ class scatterSizeClass(attenuation):
 		self.bscFaranSizes = numpy.arange(1,150)
 
 
-	def ComputeScattererSizeImage(self, vmin = None, vmax = None):
+	def ComputeScattererSizeImage(self, vmin = None, vmax = None, itkFileName = None):
 		'''First compute the attenuation image, then use the attenuation image and the
 		reference phantom spectrum to get the spectrum at each point.  Minimize difference
 		between this power spectrum with a spectrum calculated from a Gaussian autocorrelation function.
@@ -73,6 +73,27 @@ class scatterSizeClass(attenuation):
 			self.scatSizeImage[self.scatSizeImage > vmax] = vmax
 		
 		self.scatSizeImageRGB = self.CreateParametricImage(self.scatSizeImage,[startY, startX], [stepY, stepX] )
+
+		#Write image to itk format
+		if itkFileName:
+			if 'mhd' not in itkFileName:
+				itkFilename += '.mhd'
+		
+			import itk
+			itkIm = itk.Image.F2.New()
+			itkIm.SetRegions(self.scatSizeImage.shape)
+			itkIm.Allocate()
+			for countY in range(numY):
+				for countX in range(numX):
+					itkIm.SetPixel( [countY, countX], self.scatSizeImage[countY, countX])
+
+			itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepY] )
+			itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+			
+			writer = itk.ImageFileWriter[itk.Image.F2]
+			writer.SetInput(itkIm)
+			writer.SetFileName(itkFileName)
+			writer.Update()
 
 	def InitializeTheoreticalBackscatter(self):
 		'''Within the transducer bandwidth calculate the backscatter coefficients over a set of scatter size.

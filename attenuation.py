@@ -2,7 +2,7 @@ from rfData import rfClass
 
 class attenuation(rfClass):
 
-	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 15, blockYmm = 8, blockXmm = 10, overlapY = .85, overlapX = .85, bscFitRadius = 1.0, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
+	def __init__(self, sampleName, refName, dataType, numRefFrames = 0, refAttenuation = .5, freqLow = 2., freqHigh = 8., attenuationKernelSizeYmm = 12, blockYmm = 8, blockXmm = 8, overlapY = .85, overlapX = .85, bscFitRadius = 1.0, centerFreqSimulation = 5.0, sigmaSimulation = 1.0 ):
 		'''Description:
 			This class implements the reference phantom method of Yao et al.  It inherits from the RF data class
 			defined for working with simulations and Seimens rfd files.
@@ -127,7 +127,7 @@ class attenuation(rfClass):
 			
 	
 	
-	def CalculateAttenuationImage(self):
+	def CalculateAttenuationImage(self, itkFileName = None):
 		'''Estimate the center frequency by fitting to a Gaussian'''
 		'''Loop through the image and calculate the spectral shift at each depth.
 		Perform the operation 1 A-line at a time to avoid repeating calculations.
@@ -193,6 +193,26 @@ class attenuation(rfClass):
 		print "Mean attenuation value of: " + str( self.attenuationImage.mean() )
 		
 		self.attenuationImageRGB = self.CreateParametricImage(self.attenuationImage,[startY, startX], [stepY, stepX] )
+
+		#Write image to itk format
+		if itkFileName:
+			if 'mhd' not in itkFileName:
+				itkFilename += '.mhd'
+		
+			import itk
+			itkIm = itk.Image.F2.New()
+			itkIm.SetRegions(self.attenuationImage.shape)
+			itkIm.Allocate()
+			for countY in range(numY):
+				for countX in range(numX):
+					itkIm.SetPixel( [countY, countX], self.attenuationImage[countY, countX])
+
+			itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepX] )
+			itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+			writer = itk.ImageFileWriter[itk.Image.F2]
+			writer.SetInput(itkIm)
+			writer.SetFileName(itkFileName)
+			writer.Update()
 
 	def ComputeReferenceSpectrum(self):
 

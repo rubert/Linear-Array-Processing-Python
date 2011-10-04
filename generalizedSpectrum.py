@@ -2,39 +2,42 @@ from rfData import rfClass
 
 class collapsedAverageImage(rfClass):
 
-	def ComputeCollapsedAverageImage(self, freqLowMHz = 2.0, freqHighMHz = 12.0, windowYmm = 8, windowXmm = 8, overlapY = .75, overlapX = .75, vMax = None):
-		'''Using 4 mm by 4 mm windows, create a collapsed average image.'''
+	def __init__(self, fname, ftype, freqLowMHz = 2.0, freqHighMHz = 12.0, windowYmm = 8, windowXmm = 8, overlapY = .75, overlapX = .75):
 
 		import numpy
-		self.ReadFrame()
+		#Set up RF data object	
+		super(collapsedAverageImage, self).__init__(fname, ftype)
+		
 		#figure out how many 6 mm by 4 mm windows fit into image		
-		windowX =int( windowYmm/self.deltaX)
-		windowY =int( windowXmm/self.deltaY)
+		self.gsWindowYmm = windowYmm
+		self.gsWindowXmm = windowXmm
+		self.windowX =int( windowYmm/self.deltaX)
+		self.windowY =int( windowXmm/self.deltaY)
 		
 		#make the windows odd numbers
-		if not windowY%2:
-			windowY +=1
+		if not self.windowY%2:
+			self.windowY +=1
 
-		if not windowX%2:
-			windowX +=1
+		if not self.windowX%2:
+			self.windowX +=1
 
-		halfY = (windowY -1)/2
-		halfX = (windowX -1)/2
+		self.halfY = (self.windowY -1)/2
+		self.halfX = (self.windowX -1)/2
 			
 		#overlap the windows axially and laterally
-		stepY = int(  (1-overlapY)*windowY )
-		startY = halfY
-		stopY = self.points - halfY - 1
-		winCenterY = range(startY, stopY, stepY)
-		numY = len(winCenterY)
+		stepY = int(  (1-overlapY)*self.windowY )
+		startY = self.halfY
+		stopY = self.points - self.halfY - 1
+		self.winCenterY = range(startY, stopY, stepY)
+		self.numY = len(self.winCenterY)
 	
-		stepX = int( (1-overlapX)*windowX )	
-		startX = halfX
-		stopX = self.lines - halfX - 1
-		winCenterX = range(startX, stopX, stepX)
-		numX = len(winCenterX)
+		stepX = int( (1-overlapX)*self.windowX )	
+		startX = self.halfX
+		stopX = self.lines - self.halfX - 1
+		self.winCenterX = range(startX, stopX, stepX)
+		self.numX = len(self.winCenterX)
 		
-		self.caImage = numpy.zeros( (numY, numX) )
+		self.caImage = numpy.zeros( (self.numY, self.numX) )
 		self.caStepX = stepX
 		self.caStepY = stepY
 
@@ -43,7 +46,7 @@ class collapsedAverageImage(rfClass):
 		self.freqLow = freqLowMHz	
 		
 		#figure out block size in points
-		self.bartlettY = 2*halfY
+		self.bartlettY = 2*self.halfY
 		self.bartlettY -= self.bartlettY%4
 		self.bartlettY /= 2
 		freqStep = (freqHighMHz - freqLowMHz)/self.bartlettY
@@ -54,28 +57,77 @@ class collapsedAverageImage(rfClass):
 		fracUnitCircle = (freqHighMHz - freqLowMHz)/(self.fs/10**6)
 		self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY ) 
 		self.cztA = numpy.exp(1j* (2*numpy.pi*freqLowMHz/(self.fs/10**6) ) )
+	
+	
+	def ComputeCollapsedAverageImage(self, vMax = None, itkFileName = None):
+		'''Using 4 mm by 4 mm windows, create a collapsed average image.'''
 
+		import numpy
+		self.ReadFrame()
+
+		
+		startY = self.halfY
+		startX = self.halfX
 		
 		#work out time to compute a point, then spit out time to calculate image
 		from time import time
 		y = x = 0
 		t1 = time()
-		tempRegion = self.data[winCenterY[y] - halfY:winCenterY[y] + halfY + 1, winCenterX[x] - halfX:winCenterX[x] + halfX + 1]
+		tempRegion = self.data[self.winCenterY[y] - self.halfY:self.winCenterY[y] + self.halfY + 1, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
 		self.CalculateGeneralizedSpectrum(region = tempRegion)
 		t2 = time()
 		print "Elapsed time was: " + str(t2-t1) + "seconds"
-		print "Estimate time to compute an entire image is: "  + str( (t2-t1)*numY*numX/3600. ) + " hours"
-				
-		for y in range(numY):
-			for x in range(numX):
-				tempRegion = self.data[winCenterY[y] - halfY:winCenterY[y] + halfY + 1, winCenterX[x] - halfX:winCenterX[x] + halfX + 1]
+		print "Estimate time to compute an entire image is: "  + str( (t2-t1)*self.numY*self.numX/3600. ) + " hours"
+			
+		#Compute whole image	
+		for y in range(self.numY):
+			for x in range(self.numX):
+				tempRegion = self.data[self.winCenterY[y] - self.halfY:self.winCenterY[y] + self.halfY + 1, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
 				self.CalculateGeneralizedSpectrum(region = tempRegion)
 				self.caImage[y,x] = self.areaUnderCA
 		
 		if vMax:
 			self.caImage[self.caImage > vMax] = vMax	
 		self.caImageRGB = self.CreateParametricImage(self.caImage,[startY, startX], [self.caStepY, self.caStepX] )	
+
+		#Write image to itk format
+		if itkFileName:
+			if 'mhd' not in itkFileName:
+				itkFilename += '.mhd'
+		
+			import itk
+			itkIm = itk.Image.F2.New()
+			itkIm.SetRegions(self.caImage.shape)
+			itkIm.Allocate()
+			for countY in range(self.numY):
+				for countX in range(self.numX):
+					itkIm.SetPixel( [countY, countX], self.caImage[countY, countX])
+
+			itkIm.SetSpacing( [self.deltaY*self.caStepY, self.deltaX*self.caStepX] )
+			itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+			writer = itk.ImageFileWriter.IF2.New()
+			writer.SetInput(itkIm)
+			writer.SetFileName(itkFileName)
+			writer.Update()
+
+
+	def ComputeCollapsedAverageInRegion(self, fname):
+		'''Create a windowY by windowX region, then compute the collapsed average in that
+		region.  Save a collapsed average image.'''
+
 	
+		if 'png' not in fname:
+			fname += '.png'	
+		self.SetRoiFixedSize(self.gsWindowXmm, self.gsWindowYmm)
+		self.ReadFrame()
+		dataBlock = self.data[self.roiY[0]:self.roiY[1], self.roiX[0]:self.roiX[1]]
+		self.CalculateGeneralizedSpectrum(dataBlock)
+	
+		from matplotlib import pyplot
+		pyplot.plot(self.CAaxis, self.CA)
+		pyplot.title('Collapsed average vs. frequency difference (MHz) ')
+		pyplot.savefig(fname)
+			 		
 	
 	def CalculateGeneralizedSpectrum(self, region):
 		'''Accept a block of data and compute the collapsed average in the region.
@@ -207,7 +259,7 @@ class collapsedAverageImage(rfClass):
 					CA[d] += GS[f1,f2]
 					counts[d] += 1
 
-
+		self.CAaxis = numpy.arange(numFreq)*(self.spectrumFreq[1] - self.spectrumFreq[0])
 		self.CA = abs(CA)/counts
 
 		#compute area under the collapsed average curve

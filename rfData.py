@@ -252,7 +252,7 @@ class rfClass(object):
 			self.fovY = self.deltaY*self.points
 				
 	
-	def SaveBModeImages(self, fname):
+	def SaveBModeImages(self, fname, images = 0, itkFileName = None):
 
 		"""Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
 		frames from a data set."""
@@ -261,22 +261,54 @@ class rfClass(object):
 		from numpy import log10
 		import matplotlib.pyplot as plt
 		import matplotlib.cm as cm
-		
-		for f in range(self.nFrames):	
-			self.ReadFrame(f)
-			temp = self.data
-
-
-			#import signal processing modules and generate Numpy array
-			bMode = log10(abs(hilbert(temp, axis = 0)))
+		if type(images) is int:
+			
+			self.ReadFrame(images)
+			bMode = log10(abs(hilbert(self.data, axis = 0)))
 			bMode = bMode - bMode.max()
-
+			bMode[ bMode < -3] = -3
 			#import matplotlib and create plot
 			fig = plt.figure()
 			ax = fig.add_subplot(1,1,1)
 			ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-			plt.savefig(fname + '_f' + str(f).zfill(3) + '.png')
-			plt.close()	
+			plt.savefig(fname + '_f' + str(images).zfill(3) + '.png')
+			plt.close()
+					
+			if itkFileName:
+				if 'mhd' not in itkFileName:
+					itkFilename += '.mhd'
+			
+				import itk
+				itkIm = itk.Image.F2.New()
+				itkIm.SetRegions(bMode.shape)
+				itkIm.Allocate()
+				for countY in range(self.points):
+					for countX in range(self.lines):
+						itkIm.SetPixel( [countY, countX], bMode[countY, countX])
+
+				itkIm.SetSpacing( [self.deltaY, self.deltaX] )
+				itkIm.SetOrigin( [0.0, 0.0] )
+				writer = itk.ImageFileWriter.IF2.New()
+				writer.SetInput(itkIm)
+				writer.SetFileName(itkFileName)
+				writer.Update()
+	
+		else:			
+			for f in images:	
+				self.ReadFrame(f)
+				temp = self.data
+
+
+				#import signal processing modules and generate Numpy array
+				bMode = log10(abs(hilbert(temp, axis = 0)))
+				bMode = bMode - bMode.max()
+
+				#import matplotlib and create plot
+				fig = plt.figure()
+				ax = fig.add_subplot(1,1,1)
+				ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+				plt.savefig(fname + '_f' + str(f).zfill(3) + '.png')
+				plt.close()	
 
 
 
