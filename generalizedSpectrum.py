@@ -125,7 +125,8 @@ class collapsedAverageImage(rfClass):
 	
 		from matplotlib import pyplot
 		pyplot.plot(self.CAaxis, self.CA)
-		pyplot.title('Collapsed average vs. frequency difference (MHz) ')
+		pyplot.ylabel('Magnitude')
+		pyplot.xlabel('Frequency difference (MHz)')
 		pyplot.savefig(fname)
 			 		
 	

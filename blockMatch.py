@@ -46,7 +46,7 @@ class UniquePriorityQueue(PriorityQueue):
 class blockMatchClass(rfClass):
 
 
-	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 6.0, rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
+	def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 4.0, rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
 		'''Input:
 		fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
 		dataType: (string)  The filetype of the input files, see rfClass for allowed types

@@ -258,58 +258,44 @@ class rfClass(object):
 		frames from a data set."""
 	
 		from scipy.signal import hilbert
-		from numpy import log10
+		from numpy import log10,arange
 		import matplotlib.pyplot as plt
 		import matplotlib.cm as cm
-		if type(images) is int:
 			
-			self.ReadFrame(images)
-			bMode = log10(abs(hilbert(self.data, axis = 0)))
-			bMode = bMode - bMode.max()
-			bMode[ bMode < -3] = -3
-			#import matplotlib and create plot
-			fig = plt.figure()
-			ax = fig.add_subplot(1,1,1)
-			ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-			plt.savefig(fname + '_f' + str(images).zfill(3) + '.png')
-			plt.close()
+		self.ReadFrame(images)
+		bMode = log10(abs(hilbert(self.data, axis = 0)))
+		bMode = bMode - bMode.max()
+		bMode[ bMode < -3] = -3
+		#import matplotlib and create plot
+		fig = plt.figure()
+		ax = fig.add_subplot(1,1,1)
+		ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+		ax.set_xlabel('Width (mm) ' )
+		ax.set_ylabel('Depth (mm) ' )
+		ax.set_xticks( arange(0, self.fovX, 10) )
+		ax.set_yticks( arange(0, self.fovY, 10) )
+		plt.savefig(fname + '_f' + str(images).zfill(3) + '.png')
+		plt.close()
 					
-			if itkFileName:
-				if 'mhd' not in itkFileName:
-					itkFilename += '.mhd'
-			
-				import itk
-				itkIm = itk.Image.F2.New()
-				itkIm.SetRegions(bMode.shape)
-				itkIm.Allocate()
-				for countY in range(self.points):
-					for countX in range(self.lines):
-						itkIm.SetPixel( [countY, countX], bMode[countY, countX])
+		if itkFileName:
+			if 'mhd' not in itkFileName:
+				itkFilename += '.mhd'
+		
+			import itk
+			itkIm = itk.Image.F2.New()
+			itkIm.SetRegions(bMode.shape)
+			itkIm.Allocate()
+			for countY in range(self.points):
+				for countX in range(self.lines):
+					itkIm.SetPixel( [countY, countX], bMode[countY, countX])
 
-				itkIm.SetSpacing( [self.deltaY, self.deltaX] )
-				itkIm.SetOrigin( [0.0, 0.0] )
-				writer = itk.ImageFileWriter.IF2.New()
-				writer.SetInput(itkIm)
-				writer.SetFileName(itkFileName)
-				writer.Update()
+			itkIm.SetSpacing( [self.deltaY, self.deltaX] )
+			itkIm.SetOrigin( [0.0, 0.0] )
+			writer = itk.ImageFileWriter.IF2.New()
+			writer.SetInput(itkIm)
+			writer.SetFileName(itkFileName)
+			writer.Update()
 	
-		else:			
-			for f in images:	
-				self.ReadFrame(f)
-				temp = self.data
-
-
-				#import signal processing modules and generate Numpy array
-				bMode = log10(abs(hilbert(temp, axis = 0)))
-				bMode = bMode - bMode.max()
-
-				#import matplotlib and create plot
-				fig = plt.figure()
-				ax = fig.add_subplot(1,1,1)
-				ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-				plt.savefig(fname + '_f' + str(f).zfill(3) + '.png')
-				plt.close()	
-
 
 
 	def MakeBmodeImage(self, frameNo = 0, showFig = True):
@@ -409,6 +395,10 @@ class rfClass(object):
 
 
 		pyplot.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
+		pyplot.xticks( arange(0,self.fovX, 10) )
+		pyplot.yticks( arange(0,self.fovY, 10) )
+		pyplot.xlabel('Width (mm)')
+		pyplot.ylabel('Depth (mm)')
 		pyplot.show()
 
 
