@@ -282,6 +282,7 @@ class rfClass(object):
                 itkFilename += '.mhd'
 
             import itk
+            p = itk.Point.F2()  #just to work around a bug in ITK's python wrappers
             itkIm = itk.Image.F2.New()
             itkIm.SetRegions(bMode.shape)
             itkIm.Allocate()
@@ -548,11 +549,9 @@ class rfClass(object):
 
 
     def CreateRoiArray(self):
-#               #Check that a Data set has been loaded
+        #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
-        import types
-        if type(self.data) == types.NoneType:
-            self.ReadFrame(0)
+        self.ReadFrame(0)
         temp = self.data
 
 
@@ -585,6 +584,35 @@ class rfClass(object):
 
         return bMode
 
+    def WriteItkBMode(self, fname, frameNo = 0):
+        self.ReadFrame(frameNo)
+        temp = self.data
+
+
+        from scipy.signal import hilbert
+        from numpy import log10
+        bMode = log10(abs(hilbert(temp, axis = 0)))
+        bMode = bMode - bMode.max()
+        bMode[bMode < -3] = -3
+
+        import itk
+        p = itk.Point.F2() #just to work around a bug in ITK
+
+        itkIm = itk.Image.F2.New()
+        itkIm.SetRegions(bMode.shape)
+        itkIm.Allocate()
+        for countY in range(bMode.shape[0]):
+            for countX in range(bMode.shape[1]):
+                itkIm.SetPixel( [countY, countX], bMode[countY, countX])
+
+        itkIm.SetSpacing( [self.deltaY, self.deltaX] )
+        itkIm.SetOrigin( [0, 0] )
+        writer = itk.ImageFileWriter.IF2.New()
+        writer.SetInput(itkIm)
+        writer.SetFileName(fname + '.mhd')
+        writer.Update()
+
+    
     def ShowRoiImage(self):
         bMode = self.createRoiArray()
         #import matplotlib and create plot

@@ -196,6 +196,7 @@ class blockMatchClass(rfClass):
                 itkFilename += '.mhd'
 
             import itk
+            p = itk.Point.F2() #solely because of ITK bug
             itkIm = itk.Image.F2.New()
             itkIm.SetRegions(self.strain.shape)
             itkIm.Allocate()

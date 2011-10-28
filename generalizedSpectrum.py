@@ -89,7 +89,7 @@ class collapsedAverageImage(rfClass):
         t2 = time()
         print "Elapsed time was: " + str(t2-t1) + "seconds"
         print "Estimate time to compute an entire image is: "  + str( (t2-t1)*self.numY*self.numX/3600. ) + " hours"
-
+        counter = 0
         #Compute whole image
         for y in range(self.numY):
             for x in range(self.numX):
@@ -98,6 +98,9 @@ class collapsedAverageImage(rfClass):
                 self.caImage[y,x] =areaUnderCurve
                 self.centerFrequency[y,x] = sigma
                 self.sigmaImage[y,x] = mu
+
+                counter += 1
+                print str(counter) + " completed of " + str(self.numY*self.numX)
         
         if vMax:
             self.caImage[self.caImage > vMax] = vMax
@@ -125,12 +128,19 @@ class collapsedAverageImage(rfClass):
 
             for countY in range(self.numY):
                 for countX in range(self.numX):
-                    itkIm.SetPixel( [countY, countX], self.caImageOneToTwoMm[countY, countX])
+                    itkIm.SetPixel( [countY, countX], self.centerFrequency[countY, countX])
 
             writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + 'oneToTwoMm.mhd')
+            writer.SetFileName(itkFileName + 'centerFreq.mhd')
             writer.Update()
 
+            for countY in range(self.numY):
+                for countX in range(self.numX):
+                    itkIm.SetPixel( [countY, countX], self.sigmaImage[countY, countX])
+
+            writer.SetInput(itkIm)
+            writer.SetFileName(itkFileName + 'sigma.mhd')
+            writer.Update()
 
     def ComputeCollapsedAverageInRegion(self, fname):
         '''Create a windowY by windowX region, then compute the collapsed average in that
@@ -202,6 +212,7 @@ class collapsedAverageImage(rfClass):
         #compute 3 fourier transforms and average them
         #Cutting off the zero-value end points of the hann window
         #so it matches Matlab's definition of the function
+        normGS = numpy.zeros( (points, points), numpy.complex128)
 
         ##############
         ###BLOCK 1####
@@ -225,9 +236,11 @@ class collapsedAverageImage(rfClass):
 
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            outerProd /= abs(outerProd)
-            outerProd[outerProd == numpy.nan] = 0. + 1j*0.
-            gsList1.append(outerProd.copy() )
+            #normalize by the diagonal elements
+            PSD = abs(numpy.diag(outerProd))
+            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
+            normGS = outerProd/PSDproduct
+            gsList1.append(normGS.copy() )
 
         ############
         ###BLOCK 2##
@@ -251,9 +264,11 @@ class collapsedAverageImage(rfClass):
         gsList2 = []
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            outerProd /= abs(outerProd)
-            outerProd[outerProd == numpy.nan] = 0. + 1j*0.
-            gsList2.append(outerProd)
+            PSD = abs(numpy.diag(outerProd))
+            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
+            #normalize by the diagonal elements
+            normGS = outerProd/PSDproduct
+            gsList2.append(normGS.copy())
 
 
         ############
@@ -274,11 +289,14 @@ class collapsedAverageImage(rfClass):
         phase = numpy.exp(1j*2*numpy.pi*delta)
 
         gsList3 = []
+
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            outerProd /= abs(outerProd)
-            outerProd[outerProd == numpy.nan] = 0. + 1j*0.
-            gsList3.append(outerProd)
+            PSD = abs(numpy.diag(outerProd))
+            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
+            #normalize by the diagonal elements
+            normGS = outerProd/PSDproduct
+            gsList3.append(normGS.copy())
 
         GS = numpy.zeros( (points, points) ) + 1j*numpy.zeros( (points, points) )
         for l in range(tempLines):
@@ -287,40 +305,16 @@ class collapsedAverageImage(rfClass):
 
 
         ########################################
-        ########COMPUTE COLLAPSED AVERAGE#######
+        ########COMPUTE ENERGY IN OFF DIAGONAL##
+        #######DIVIDE BY AREA OCCUPIED##########
         ########################################
         numFreq = len(spectrumFreq)
         counts = numpy.zeros(numFreq)
-        CA = numpy.zeros(numFreq) + 1j*numpy.zeros(numFreq)
+        CA = 0.
         for f1 in range(numFreq):
             for f2 in range(numFreq):
-                d = abs(f2-f1)
-                if d < numFreq:
-                    CA[d] += GS[f1,f2]
-                    counts[d] += 1
+                if abs(f1 - f2) > 0:
+                    CA += abs(GS[f1,f2])
 
-        deltaF = spectrumFreq[1] - spectrumFreq[0]
-        CAaxisFrequency = numpy.arange(numFreq)*deltaF
-        CA = abs(CA)/counts
-
-        #compute area under the collapsed average curve, between
-        #the frequency bins corresponding to .8 and 2 mm
-        #calculate by D = c/(2*f) or f = c/(2*D)
-        #If the sound speed is 1540 m/s this is 
-        #.193 MHz and .77 MHz
-        
-        #First rebin the collapsed average function so it is plotted in terms of scatterer spacing
-        CAaxisMm = 1540./(2*CAaxisFrequency[1:])*10**-3
-        CAaxisMm = CAaxisMm[::-1]
-        CA = CA[1:]
-        CA = CA[::-1]
-        
-        #Now compute area under curve between 1 and 2 mm
-        areaUnderCA = 0.
-
-        for point in range(len(CA) - 1):
-            deltaD = CAaxisMm[point  +1] - CAaxisMm[point]
-            if 1 <= CAaxisMm[point] <= 2:
-                areaUnderCA += (CA[point] + CA[point + 1])/2*deltaD
-
-        return areaUnderCA, mu, sigma
+        CA = CA/( (numFreq**2 - numFreq)*deltaF)
+        return CA, mu, sigma
