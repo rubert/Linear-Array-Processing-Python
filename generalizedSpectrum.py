@@ -111,6 +111,7 @@ class collapsedAverageImage(rfClass):
         if itkFileName:
 
             import itk
+            p = itk.Point.F2()
             itkIm = itk.Image.F2.New()
             itkIm.SetRegions(self.caImage.shape)
             itkIm.Allocate()
@@ -308,13 +309,18 @@ class collapsedAverageImage(rfClass):
         ########COMPUTE ENERGY IN OFF DIAGONAL##
         #######DIVIDE BY AREA OCCUPIED##########
         ########################################
+        #Along diagonal lines the scatterer spacing/frequency difference is the same
+        #exclude all the entries that have a larger scatter spacing/lower frequency difference
+        #than half the window size  .77MHz for a 4 mm window
         numFreq = len(spectrumFreq)
-        counts = numpy.zeros(numFreq)
+        minFreqDiff = int(.77/deltaF)
+        count = 0
         CA = 0.
         for f1 in range(numFreq):
             for f2 in range(numFreq):
-                if abs(f1 - f2) > 0:
+                if abs(f1 - f2) > minFreqDiff:
                     CA += abs(GS[f1,f2])
+                    count += 1
 
-        CA = CA/( (numFreq**2 - numFreq)*deltaF)
+        CA = CA/( count*deltaF)
         return CA, mu, sigma
