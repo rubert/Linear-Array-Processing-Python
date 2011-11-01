@@ -237,10 +237,7 @@ class collapsedAverageImage(rfClass):
 
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            #normalize by the diagonal elements
-            PSD = abs(numpy.diag(outerProd))
-            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
-            normGS = outerProd/PSDproduct
+            normGS = outerProd/abs(outerProd)
             gsList1.append(normGS.copy() )
 
         ############
@@ -265,10 +262,7 @@ class collapsedAverageImage(rfClass):
         gsList2 = []
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            PSD = abs(numpy.diag(outerProd))
-            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
-            #normalize by the diagonal elements
-            normGS = outerProd/PSDproduct
+            normGS = outerProd/abs(outerProd)
             gsList2.append(normGS.copy())
 
 
@@ -293,10 +287,7 @@ class collapsedAverageImage(rfClass):
 
         for l in range(tempLines):
             outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            PSD = abs(numpy.diag(outerProd))
-            PSDproduct = numpy.sqrt( numpy.outer( PSD, PSD ) )
-            #normalize by the diagonal elements
-            normGS = outerProd/PSDproduct
+            normGS = outerProd/abs(outerProd)
             gsList3.append(normGS.copy())
 
         GS = numpy.zeros( (points, points) ) + 1j*numpy.zeros( (points, points) )
@@ -311,16 +302,21 @@ class collapsedAverageImage(rfClass):
         ########################################
         #Along diagonal lines the scatterer spacing/frequency difference is the same
         #exclude all the entries that have a larger scatter spacing/lower frequency difference
-        #than half the window size  .77MHz for a 4 mm window
+        #than half the window size  .77 MHz for a 4 mm window
+        #Also exclude all sizes less than .5 mm, which is 1.54 MHz
         numFreq = len(spectrumFreq)
         minFreqDiff = int(.77/deltaF)
+        maxFreqDiff = int(1.54/deltaF)
         count = 0
         CA = 0.
         for f1 in range(numFreq):
             for f2 in range(numFreq):
-                if abs(f1 - f2) > minFreqDiff:
+                if abs(f1 - f2) > minFreqDiff and abs(f1-f2) < maxFreqDiff:
                     CA += abs(GS[f1,f2])
                     count += 1
 
-        CA = CA/( count*deltaF)
+        if count:
+            CA = CA/( count)
+        else:
+            CA = 0.
         return CA, mu, sigma
