@@ -1,4 +1,5 @@
-def CreateParametricImage(self, bModeName, parametricName, colormap = 'jet', show = False, outFileName = None):
+def CreateParametricImage(bModeName, parametricName, colormap = 'jet', show = False, outFileName = None,
+maxParametricValue = None):
         '''Input:
         bModeName:
         parametricName:
@@ -11,29 +12,30 @@ def CreateParametricImage(self, bModeName, parametricName, colormap = 'jet', sho
          '''
 
         #read in B-mode image/parametric image
-        import SimpleItk as sitk
+        import SimpleITK as sitk
 
-        reader = sitk.ImageFileReader.New()
+        reader = sitk.ImageFileReader()
         reader.SetFileName(bModeName)
         bModeItk = reader.Execute()
-        bMode = sitk.GetArrayFromImage(bModeItk)
+        bMode = sitk.GetArrayFromImage(bModeItk).T
         bModeSpacing = bModeItk.GetSpacing()
         bModeOrigin = bModeItk.GetOrigin()
 
         reader.SetFileName(parametricName)
         paramImItk = reader.Execute()
-        paramImage = sitk.GetArrayFromImage(paramImItk)
+        paramImage = sitk.GetArrayFromImage(paramImItk).T
         paramSpacing = paramImItk.GetSpacing()
         paramOrigin = paramImItk.GetOrigin()
-        
+       
+        if maxParametricValue:
+            paramImage[paramImage > maxParametricValue] = maxParametricValue
 
-        spacing = [ round(paramSpacing[0]/bModeSpacing[0]), round(paramSpacing[1]/bModeSpacing[0]) ]
-        origin = [ round(paramOrigin[0]/bModeSpacing[0]), round(paramOrigin[1]/bModeSpacing[1]) ]
+        print "Mean value in parametric image is: " + str(paramImage.mean() )
 
-        self.paramValMax = paramImage.max()
-        self.paramValMin = paramImage.min()
+        spacing = [ int( round(paramSpacing[0]/bModeSpacing[0]) ), int( round(paramSpacing[1]/bModeSpacing[1]) ) ]
+        origin = [int( round(paramOrigin[0]/bModeSpacing[0]) ),int( round(paramOrigin[1]/bModeSpacing[1]) ) ]
 
-        point,lines = bMode.shape
+        points,lines = bMode.shape
 
         #work out size of region in B-mode image
         bModeSizeY = spacing[0]*(paramImage.shape[0] - 1) + 1
@@ -53,14 +55,13 @@ def CreateParametricImage(self, bModeName, parametricName, colormap = 'jet', sho
 
         #use old image to interpolate
         for x in range(paramImage.shape[1]):
-            interp = interpolate.interp1d(paramRfYIndexes, paramImage[:,x] )
+            interp = interpolate.interp1d(paramRfYIndexes, paramImage[:,x], kind = 'nearest' )
             paramImageUpInY[:, x] = interp(paramRfYIndexesNew )
 
 
         for y in range(paramImageUp.shape[0]):
             interp = interpolate.interp1d(paramRfXIndexes, paramImageUpInY[y,:] )
             paramImageUp[y, :] = interp( paramRfXIndexesNew )
-
 
 
         '''Convert array containing param values to RGBALpha array'''
@@ -77,9 +78,18 @@ def CreateParametricImage(self, bModeName, parametricName, colormap = 'jet', sho
         bMode[origin[0]:origin[0] + tempIm.shape[0],origin[1]:origin[1] + tempIm.shape[1], :] = tempIm
 
         if show:
-            pyplot.imshow( bMode, extent = [0, bModeSpacing[1]*lines, bModeSpacing[0]*points] )
+            fig =pyplot.figure()
+            ax = fig.add_subplot(111)
+            cax = ax.imshow( bMode, extent = [0, bModeSpacing[1]*lines, bModeSpacing[0]*points, 0] , vmin =
+            paramImage.min(), vmax = paramImage.max() )
+            cbar = fig.colorbar(cax)
             pyplot.show()
 
-if name == '__main__':
+if __name__ == '__main__':
 
-    print "RUnning as a script"
+    import sys
+
+    if len(sys.argv) <4:
+        CreateParametricImage(sys.argv[1], sys.argv[2], show = True)
+    else:
+        CreateParametricImage(sys.argv[1], sys.argv[2], show = True, maxParametricValue = float(sys.argv[3]) )
