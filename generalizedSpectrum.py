@@ -56,16 +56,15 @@ class collapsedAverageImage(rfClass):
         self.freqLow = freqLowMHz
 
         #figure out block size in points
-        self.bartlettY = 2*self.halfY
-        self.bartlettY -= self.bartlettY%4
-        self.bartlettY /= 2
-        freqStep = (freqHighMHz - freqLowMHz)/self.bartlettY
-        freqStepLowRes = self.fs/(10.**6*self.bartlettY)
-        self.spectrumFreqLowRes = numpy.arange(self.bartlettY)*freqStepLowRes
+        self.psdPoints = 2*self.halfY
+        self.psdPoints -= self.psdPoints%4
+        self.gsPoints = self.psdPoints
+        self.psdPoints /= 2
+        freqStep = (freqHighMHz - freqLowMHz)/self.psdPoints
 
-        self.spectrumFreq = numpy.arange(0,self.bartlettY)*freqStep  + freqLowMHz
+        self.psdFreq = numpy.arange(0,self.psdPoints)*freqStep  + freqLowMHz
         fracUnitCircle = (freqHighMHz - freqLowMHz)/(self.fs/10**6)
-        self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY )
+        self.cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.psdPoints )
         self.cztA = numpy.exp(1j* (2*numpy.pi*freqLowMHz/(self.fs/10**6) ) )
 
 
@@ -74,6 +73,7 @@ class collapsedAverageImage(rfClass):
         import numpy
         self.ReadFrame()
         self.caImage = numpy.zeros( (self.numY, self.numX) )
+        self.spacingImage = numpy.zeros( (self.numY, self.numX) )
         self.centerFrequency= numpy.zeros( (self.numY, self.numX) )
         self.sigmaImage= numpy.zeros( (self.numY, self.numX) )
 
@@ -143,13 +143,21 @@ class collapsedAverageImage(rfClass):
             writer.SetFileName(itkFileName + 'sigma.mhd')
             writer.Update()
 
+
+            for countY in range(self.numY):
+                for countX in range(self.numX):
+                    itkIm.SetPixel( [countY, countX], self.spacingImage[countY, countX])
+
+            writer.SetInput(itkIm)
+            writer.SetFileName(itkFileName + 'spacing.mhd')
+            writer.Update()
+
     def ComputeCollapsedAverageInRegion(self, fname):
         '''Create a windowY by windowX region, then compute the collapsed average in that
         region.  Save a collapsed average image.'''
 
+        import numpy
 
-        if 'png' not in fname:
-            fname += '.png'
         self.SetRoiFixedSize(self.gsWindowXmm, self.gsWindowYmm)
         self.ReadFrame()
         dataBlock = self.data[self.roiY[0]:self.roiY[1], self.roiX[0]:self.roiX[1]]
@@ -159,34 +167,40 @@ class collapsedAverageImage(rfClass):
         pyplot.plot(self.CAaxis, self.CA)
         pyplot.ylabel('Magnitude')
         pyplot.xlabel('Frequency difference (MHz)')
-        pyplot.savefig(fname)
+        pyplot.savefig(fname + 'collapsedAverage.png')
+        pyplot.close()
 
+        pyplot.imshow( numpy.flipud(abs(self.GS)), extent= [self.gsFreq.min(), self.gsFreq.max(), self.gsFreq.min(),
+        self.gsFreq.max()] )        
+        pyplot.xlabel('Frequency (MHz)')
+        pyplot.ylabel('Frequency (MHz)')
+        pyplot.savefig(fname + 'generalizedSpectrum.png')
+        pyplot.close()
 
     def CalculateGeneralizedSpectrum(self, region):
-        '''Use 3 50% overlapping windows axially to compute Fourier transforms.
+        '''Use 3 50% overlapping windows axially to compute PSD.
         Calculate Power spectrum first.  Normalize it to have a max value of 1.
         Fit this to a Gaussian.  f(x) = exp[ -(x - mu)**2 / 2 (sigma**2)]
-        A Gaussian falls to -6 dB (1/4 of max value) at a little more than one sigma '''
+        A Gaussian falls to -6 dB (1/4 of max value) at a little more than one sigma.
+        
+        Use full window length to compute axial signal.'''
 
         from scipy.signal import hann,convolve
         from scipy import optimize, interpolate
         import numpy
         from chirpz import chirpz
 
-        points = region.shape[0]
-        points -= points%4
-        points /= 2
-
-        maxDataWindow = region[0:2*points, :]
-        windowFunc = hann(points+2)[1:-1].reshape(points,1)
-        powerSpectrum = numpy.zeros( points )
+        maxDataWindow = region[0:self.gsPoints, :]
+        
+        windowFuncPsd = hann(self.psdPoints+2)[1:-1].reshape(self.psdPoints,1)
+        powerSpectrum = numpy.zeros( self.psdPoints )
 
         #first compute the power spectrum, normalize it to maximum value
         for r in range(3):
-            dataWindow = maxDataWindow[points/2*r:points/2*r + points, :]*windowFunc
+            dataWindow = maxDataWindow[self.psdPoints/2*r:self.psdPoints/2*r + self.psdPoints, :]*windowFuncPsd
             fourierData = numpy.zeros( dataWindow.shape )
             for l in range(maxDataWindow.shape[1]):
-                fourierData[:,l] = abs(chirpz(dataWindow[:,l], self.cztA, self.cztW, points))
+                fourierData[:,l] = abs(chirpz(dataWindow[:,l], self.cztA, self.cztW, self.psdPoints))
             powerSpectrum += fourierData.mean(axis = 1)
 
         powerSpectrum /= powerSpectrum.max()
@@ -194,129 +208,88 @@ class collapsedAverageImage(rfClass):
         #now fit the spectrum to a gaussian
         errfunc = lambda param,x,y: y - numpy.exp(- (x - param[0])**2/(2*param[1]**2) )
         param0 = (5., 1.0)
-        args = (self.spectrumFreq,powerSpectrum)
+        args = (self.psdFreq,powerSpectrum)
         param, message = optimize.leastsq(errfunc, param0, args)
         mu = param[0]
         sigma = param[1]
 
         #set low and high frequency cutoffs based on output mu, sigma
-        lowCut = mu - sigma
-        highCut = mu + sigma
+        lowCut = mu - 2*sigma
+        if lowCut < 0:
+            lowCut = 0
+        highCut = mu + 2*sigma
+        if highCut > self.fs/10**6:
+            highCut = self.fs/10**6
 
-        freqStep = (highCut - lowCut)/self.bartlettY
-        spectrumFreq = numpy.arange(0,self.bartlettY)*freqStep  + lowCut
+        freqStep = (highCut - lowCut)/self.psdPoints
+        spectrumFreq = numpy.arange(0,self.psdPoints)*freqStep  + lowCut
         fracUnitCircle = (highCut - lowCut)/(self.fs/10**6)
-        cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.bartlettY )
+        cztW = numpy.exp(1j* (-2*numpy.pi*fracUnitCircle)/self.psdPoints )
         cztA = numpy.exp(1j* (2*numpy.pi*lowCut/(self.fs/10**6) ) )
 
+        self.gsFreq = spectrumFreq
 
-        #compute 3 fourier transforms and average them
-        #Cutting off the zero-value end points of the hann window
-        #so it matches Matlab's definition of the function
-        normGS = numpy.zeros( (points, points), numpy.complex128)
+        ###########################
+        ###Time averaged GS########
+        ###########################
+        GS = numpy.zeros( (self.psdPoints, self.psdPoints,3 ) , numpy.complex128)
+        
+        for r in range(3):
+            dataWindow = maxDataWindow[self.psdPoints/2*r:self.psdPoints/2*r + self.psdPoints, :]*windowFuncPsd
+            tempPoints = dataWindow.shape[0]
+            tempLines = dataWindow.shape[1]
+            fourierData = numpy.zeros( dataWindow.shape, numpy.complex128 )
+            
+            for l in range(tempLines):
+                fourierData[:,l] = chirpz(dataWindow[:,l], cztA, cztW, self.psdPoints)
 
-        ##############
-        ###BLOCK 1####
-        ##############
-        #Work out the delay between the first point and the maximum intensity point
-        dataWindow = maxDataWindow[0:points, :]*windowFunc
-        tempPoints = dataWindow.shape[0]
-        tempLines = dataWindow.shape[1]
+            #get point delay in seconds
+            maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
+            delta = numpy.outer(spectrumFreq*10**6,maxPointDelay)
+            phase = numpy.exp(1j*2*numpy.pi*delta)
+            
+            for l in range(tempLines):
+                outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
+                GS[:,:,r] += outerProd/abs(outerProd)
 
-        fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
-        for l in range(tempLines):
-            fourierData[:,l] = chirpz(dataWindow[:,l], cztA, cztW, points)
-
-
-        #get point delay in seconds
-        maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-        #Work out frequency spacing for DFT points
-        delta = numpy.outer(spectrumFreq*10**6,maxPointDelay)
-        phase = numpy.exp(1j*2*numpy.pi*delta)
-        gsList1 = []
-
-        for l in range(tempLines):
-            outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            normGS = outerProd/abs(outerProd)
-            gsList1.append(normGS.copy() )
-
-        ############
-        ###BLOCK 2##
-        ############
-        #step ahead by 50% the window size and add in more contributions
-        dataWindow = maxDataWindow[points/2: points/2 + points, :]*windowFunc
-        tempPoints = dataWindow.shape[0]
-        tempLines = dataWindow.shape[1]
-        fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
-        for l in range(tempLines):
-            fourierData[:,l] = chirpz(dataWindow[:,l], cztA, cztW, points)
-
-        maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-
-
-        #Work out frequency spacing for DFT points
-        deltaF = spectrumFreq[1] - spectrumFreq[0]
-        delta = numpy.outer(spectrumFreq*10**6,maxPointDelay)
-        phase = numpy.exp(1j*2*numpy.pi*delta)
-
-        gsList2 = []
-        for l in range(tempLines):
-            outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            normGS = outerProd/abs(outerProd)
-            gsList2.append(normGS.copy())
-
-
-        ############
-        ###BLOCK 3##
-        ############
-        #step ahead by 50% the window size and add in more contributions
-        dataWindow = maxDataWindow[points:2*points, :]*windowFunc
-        tempPoints = dataWindow.shape[0]
-        tempLines = dataWindow.shape[1]
-        fourierData = numpy.zeros( dataWindow.shape ) + 1j*numpy.zeros( dataWindow.shape)
-        for l in range(tempLines):
-            fourierData[:,l] = chirpz(dataWindow[:,l], cztA, cztW, points)
-
-        maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
-        #Work out frequency spacing for DFT points
-        deltaF = spectrumFreq[1] - spectrumFreq[0]
-        delta = numpy.outer(spectrumFreq*10**6,maxPointDelay)
-        phase = numpy.exp(1j*2*numpy.pi*delta)
-
-        gsList3 = []
-
-        for l in range(tempLines):
-            outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
-            normGS = outerProd/abs(outerProd)
-            gsList3.append(normGS.copy())
-
-        GS = numpy.zeros( (points, points) ) + 1j*numpy.zeros( (points, points) )
-        for l in range(tempLines):
-            GS += gsList1[l] + gsList2[l] + gsList3[l]
-
-
-
-        ########################################
-        ########COMPUTE ENERGY IN OFF DIAGONAL##
-        #######DIVIDE BY AREA OCCUPIED##########
-        ########################################
+       
+        GS = GS.sum(axis = 2)
+        
+        ##############################################
+        ########COMPUTE COLLAPSED AVERAGE#############
+        ##############################################
         #Along diagonal lines the scatterer spacing/frequency difference is the same
         #exclude all the entries that have a larger scatter spacing/lower frequency difference
-        #than half the window size  .77 MHz for a 4 mm window
-        #Also exclude all sizes less than .5 mm, which is 1.54 MHz
+        #than 1.5 mm:  .51 MHz 
+        #Exclude all sizes less than .5 mm, which is 1.54 MHz
         numFreq = len(spectrumFreq)
-        minFreqDiff = int(.77/deltaF)
-        maxFreqDiff = int(1.54/deltaF)
-        count = 0
-        CA = 0.
+        self.CA = numpy.zeros(numFreq)
+        counts = numpy.zeros(numFreq)
+       
         for f1 in range(numFreq):
             for f2 in range(numFreq):
-                if abs(f1 - f2) > minFreqDiff and abs(f1-f2) < maxFreqDiff:
-                    CA += abs(GS[f1,f2])
-                    count += 1
+                d = abs(f1-f2)
+                self.CA[d] += abs(GS[f1,f2])
+                counts[d] += 1
 
-        if count:
-            CA = CA/( count)
-        else:
-            CA = 0.
-        return CA, mu, sigma
+        self.CA /= counts
+        self.CAaxis = numpy.arange(numFreq)*freqStep
+        self.GS = GS
+
+        #######################################
+        ########COMPUTE THE AVERAGE OF THE#####
+        ########COLLAPSED AVERAGE##############
+        #######################################
+        resolvableLimit = 2*sigma
+        print " The resolvable scattering limit is: " + str(resolvableLimit)
+        psdLimit = (1540./(2*self.gsWindowYmm*10**-3/2 ))/10**6
+        print " The scattering from scatterers larger than the axial window begins at: " + str(psdLimit)
+        
+        avgCA = 0
+        for val, f in enumerate(self.CA):
+            if f*freqStep > psdLimit and f*freqStep < resolvableLimit:
+                avgCA += val
+
+        avgCA /= abs(psdLimit - resolvableLimit)
+
+        return avgCA, mu, sigma
