@@ -172,15 +172,19 @@ class collapsedAverageImage(rfClass):
         self.SetRoiFixedSize(self.gsWindowXmm, self.gsWindowYmm)
         self.ReadFrame()
         dataBlock = self.data[self.roiY[0]:self.roiY[1], self.roiX[0]:self.roiX[1]]
-        self.CalculateGeneralizedSpectrum(dataBlock)
+        caTot,caRes, caUnRes, sigma, mu =self.CalculateGeneralizedSpectrum(dataBlock)
+
+        print "The average over the whole CA is: " + str(caTot)
+        print "The average over the resolvable portion is: " + str(caRes)
 
         from matplotlib import pyplot
-        pyplot.plot(self.CAaxis, self.CA)
+        pyplot.plot(self.CAaxis, self.CA, 'k')
         pyplot.ylabel('Magnitude')
         pyplot.xlabel('Frequency difference (MHz)')
+        pyplot.axvspan(self.psdLimit, self.resolvableLimit , alpha = .3)
         pyplot.savefig(fname + 'collapsedAverage.png')
         pyplot.close()
-
+        
         pyplot.imshow( numpy.flipud(abs(self.GS)), extent= [self.gsFreq.min(), self.gsFreq.max(), self.gsFreq.min(),
         self.gsFreq.max()] )        
         pyplot.xlabel('Frequency (MHz)')
@@ -291,10 +295,10 @@ class collapsedAverageImage(rfClass):
         ########COMPUTE THE AVERAGE OF THE#####
         ########COLLAPSED AVERAGE##############
         #######################################
-        resolvableLimit = 2*sigma
-        print " The resolvable scattering limit is: " + str(resolvableLimit)
-        psdLimit = (1540./(2*self.gsWindowYmm*10**-3/2 ))/10**6
-        print " The scattering from scatterers larger than the axial window begins at: " + str(psdLimit)
+        self.resolvableLimit = 2*sigma
+        print " The resolvable scattering limit is: " + str(self.resolvableLimit)
+        self.psdLimit = (1540./(2*self.gsWindowYmm*10**-3/2 ))/10**6
+        print " The scattering from scatterers larger than the axial window begins at: " + str(self.psdLimit)
         
         avgCAresolvable = 0.
         resCount = 0
@@ -302,14 +306,14 @@ class collapsedAverageImage(rfClass):
         unResCount = 0
         avgCA = 0.
         totCount = 0
-        for val, f in enumerate(self.CA):
-            if f*freqStep > psdLimit and f*freqStep < resolvableLimit:
+        for f, val in enumerate(self.CA):
+            if f*freqStep > self.psdLimit and f*freqStep < self.resolvableLimit:
                 avgCAresolvable += val
                 resCount += 1
-            if f*freqStep > resolvableLimit:
+            if f*freqStep > self.resolvableLimit:
                 avgCAunresolvable += val
                 unResCount += 1
-            if f*freqStep > psdLimit:
+            if f*freqStep > self.psdLimit:
                 avgCA += val
                 totCount += 1
 
