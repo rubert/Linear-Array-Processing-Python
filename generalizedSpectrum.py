@@ -297,17 +297,27 @@ class collapsedAverageImage(rfClass):
         print " The scattering from scatterers larger than the axial window begins at: " + str(psdLimit)
         
         avgCAresolvable = 0.
+        resCount = 0
         avgCAunresolvable = 0.
+        unResCount = 0
         avgCA = 0.
+        totCount = 0
         for val, f in enumerate(self.CA):
             if f*freqStep > psdLimit and f*freqStep < resolvableLimit:
                 avgCAresolvable += val
+                resCount += 1
             if f*freqStep > resolvableLimit:
                 avgCAunresolvable += val
-            avgCA += val
+                unResCount += 1
+            if f*freqStep > psdLimit:
+                avgCA += val
+                totCount += 1
 
-        avgCAresolvable /= abs(psdLimit - resolvableLimit)
-        avgCAunresolvable /= abs(resolvableLimit - self.CAaxis.max() )
-        avgCA /= abs(self.CAaxis.max() - psdLimit )
+        if resCount > 0:
+            avgCAresolvable /= resCount
+        if unResCount > 0:
+            avgCAunresolvable /= unResCount
+        if totCount > 0:
+            avgCA /= totCount
 
         return avgCA, avgCAresolvable, avgCAunresolvable, mu, sigma
