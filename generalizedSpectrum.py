@@ -72,6 +72,7 @@ class collapsedAverageImage(rfClass):
 
         import numpy
         self.ReadFrame()
+        self.wholeCaImage =numpy.zeros( (self.numY, self.numX) )
         self.resCaImage = numpy.zeros( (self.numY, self.numX) )
         self.unResCaImage = numpy.zeros( (self.numY, self.numX) )
         self.centerFrequency= numpy.zeros( (self.numY, self.numX) )
@@ -94,7 +95,8 @@ class collapsedAverageImage(rfClass):
         for y in range(self.numY):
             for x in range(self.numX):
                 tempRegion = self.data[self.winCenterY[y] - self.halfY:self.winCenterY[y] + self.halfY + 1, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
-                caRes, caUnRes, sigma, mu = self.CalculateGeneralizedSpectrum(region = tempRegion)
+                caTot,caRes, caUnRes, sigma, mu = self.CalculateGeneralizedSpectrum(region = tempRegion)
+                self.wholeCaImage[y,x] = caTot
                 self.resCaImage[y,x] =caRes
                 self.unResCaImage[y,x] =caUnRes
                 self.centerFrequency[y,x] = sigma
@@ -105,24 +107,31 @@ class collapsedAverageImage(rfClass):
         
         if vMax:
             self.caImage[self.caImage > vMax] = vMax
-
-        self.caImageRGB = self.CreateParametricImage(self.caImage,[startY, startX], [self.caStepY, self.caStepX] )
-
+        
         #Write image to itk format
         if itkFileName:
 
             import itk
             p = itk.Point.F2()
             itkIm = itk.Image.F2.New()
-            itkIm.SetRegions(self.caImage.shape)
+            itkIm.SetRegions(self.resCaImage.shape)
             itkIm.Allocate()
+            
             for countY in range(self.numY):
                 for countX in range(self.numX):
-                    itkIm.SetPixel( [countY, countX], self.resCaImage[countY, countX])
+                    itkIm.SetPixel( [countY, countX], self.wholeCaImage[countY, countX])
 
             itkIm.SetSpacing( [self.deltaY*self.caStepY, self.deltaX*self.caStepX] )
             itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
             writer = itk.ImageFileWriter.IF2.New()
+            writer.SetInput(itkIm)
+            writer.SetFileName(itkFileName + 'totalCa.mhd')
+            writer.Update()
+            
+            for countY in range(self.numY):
+                for countX in range(self.numX):
+                    itkIm.SetPixel( [countY, countX], self.resCaImage[countY, countX])
+
             writer.SetInput(itkIm)
             writer.SetFileName(itkFileName + 'resolvableCa.mhd')
             writer.Update()
@@ -287,15 +296,18 @@ class collapsedAverageImage(rfClass):
         psdLimit = (1540./(2*self.gsWindowYmm*10**-3/2 ))/10**6
         print " The scattering from scatterers larger than the axial window begins at: " + str(psdLimit)
         
-        avgCAresolvable = 0
-        avgCAunresolvable = 0
+        avgCAresolvable = 0.
+        avgCAunresolvable = 0.
+        avgCA = 0.
         for val, f in enumerate(self.CA):
             if f*freqStep > psdLimit and f*freqStep < resolvableLimit:
                 avgCAresolvable += val
             if f*freqStep > resolvableLimit:
                 avgCAunresolvable += val
+            avgCA += val
 
         avgCAresolvable /= abs(psdLimit - resolvableLimit)
         avgCAunresolvable /= abs(resolvableLimit - self.CAaxis.max() )
+        avgCA /= abs(self.CAaxis.max() - psdLimit )
 
-        return avgCAresolvable, avgCAunresolvable, mu, sigma
+        return avgCA, avgCAresolvable, avgCAunresolvable, mu, sigma
