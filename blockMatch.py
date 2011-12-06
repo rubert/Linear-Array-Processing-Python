@@ -153,7 +153,7 @@ class blockMatchClass(rfClass):
     #for determining bad seeds
         self.threshold = round( (self.numY/10)*(self.numX/10) )
 
-    def CreateStrainImage(self, preFrame = 0, postFrame = 1, vMax = None, itkFileName = None):
+    def CreateStrainImage(self, preFrame = 0, skipFrame = 0, vMax = None, itkFileName = None):
         '''With the given parameters, pre, and post RF data create a strain image.'''
 
         #get pre and post frame
@@ -164,7 +164,7 @@ class blockMatchClass(rfClass):
             self.postRf.ReadFrame(preFrame)
             self.post = self.postRf.data.copy()
         else:
-            self.ReadFrame(postFrame)
+            self.ReadFrame(preFrame + 1 + skipFrame)
             self.post = self.data.copy()
 
         self.InitializeArrays()
@@ -189,11 +189,8 @@ class blockMatchClass(rfClass):
         self.dpXRGB = self.CreateParametricImage(self.dpX,[startYdp, startX], [stepY, stepX])
         self.qualityRGB = self.CreateParametricImage(self.quality,[startYdp, startX], [stepY, stepX] )
 
-
         #Write image to itk format
         if itkFileName:
-            if 'mhd' not in itkFileName:
-                itkFilename += '.mhd'
 
             import itk
             p = itk.Point.F2() #solely because of ITK bug
@@ -208,7 +205,15 @@ class blockMatchClass(rfClass):
             itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
             writer = itk.ImageFileWriter.IF2.New()
             writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName)
+            writer.SetFileName(itkFileName + '.mhd')
+            writer.Update()
+
+            for countY in range(self.strain.shape[0]):
+                for countX in range(self.strain.shape[1]):
+                    itkIm.SetPixel( [countY, countX], self.quality[countY, countX])
+
+            writer.SetInput(itkIm)
+            writer.SetFileName(itkFileName + 'quality.mhd')
             writer.Update()
 
 

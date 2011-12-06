@@ -637,3 +637,11 @@ class rfClass(object):
         im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
         plt.savefig(fname)
         plt.close()
+
+
+if __name__ == '__main__':
+
+    from rfData import rfClass
+    import sys
+    bImage = rfClass(sys.argv[1], 'rfd')
+    bImage.WriteItkBMode(sys.argv[1][:-4])

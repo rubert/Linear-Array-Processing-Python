@@ -22,8 +22,8 @@ class collapsedAverageImage(rfClass):
         #figure out how many 6 mm by 4 mm windows fit into image
         self.gsWindowYmm = windowYmm
         self.gsWindowXmm = windowXmm
-        self.windowX =int( windowYmm/self.deltaX)
-        self.windowY =int( windowXmm/self.deltaY)
+        self.windowY =int( windowYmm/self.deltaY)
+        self.windowX =int( windowXmm/self.deltaX)
 
         #make the windows odd numbers
         if not self.windowY%2:
@@ -72,9 +72,8 @@ class collapsedAverageImage(rfClass):
 
         import numpy
         self.ReadFrame()
-        self.wholeCaImage =numpy.zeros( (self.numY, self.numX) )
-        self.resCaImage = numpy.zeros( (self.numY, self.numX) )
-        self.unResCaImage = numpy.zeros( (self.numY, self.numX) )
+        self.CaAvgImage =numpy.zeros( (self.numY, self.numX,7) )
+        self.CaSlopeImage = numpy.zeros( (self.numY, self.numX,7) )
         self.centerFrequency= numpy.zeros( (self.numY, self.numX) )
         self.sigmaImage= numpy.zeros( (self.numY, self.numX) )
 
@@ -95,10 +94,9 @@ class collapsedAverageImage(rfClass):
         for y in range(self.numY):
             for x in range(self.numX):
                 tempRegion = self.data[self.winCenterY[y] - self.halfY:self.winCenterY[y] + self.halfY + 1, self.winCenterX[x] - self.halfX:self.winCenterX[x] + self.halfX + 1]
-                caTot,caRes, caUnRes, sigma, mu = self.CalculateGeneralizedSpectrum(region = tempRegion)
-                self.wholeCaImage[y,x] = caTot
-                self.resCaImage[y,x] =caRes
-                self.unResCaImage[y,x] =caUnRes
+                caBinned,caSlope, sigma, mu = self.CalculateGeneralizedSpectrum(region = tempRegion)
+                self.CaAvgImage[y,x, :] = caBinned
+                self.CaSlopeImage[y,x] =caSlope
                 self.centerFrequency[y,x] = sigma
                 self.sigmaImage[y,x] = mu
 
@@ -114,35 +112,30 @@ class collapsedAverageImage(rfClass):
             import itk
             p = itk.Point.F2()
             itkIm = itk.Image.F2.New()
-            itkIm.SetRegions(self.resCaImage.shape)
+            itkIm.SetRegions(self.sigmaImage.shape)
             itkIm.Allocate()
-            
-            for countY in range(self.numY):
-                for countX in range(self.numX):
-                    itkIm.SetPixel( [countY, countX], self.wholeCaImage[countY, countX])
-
             itkIm.SetSpacing( [self.deltaY*self.caStepY, self.deltaX*self.caStepX] )
             itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+            
             writer = itk.ImageFileWriter.IF2.New()
-            writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + 'totalCa.mhd')
-            writer.Update()
-            
-            for countY in range(self.numY):
-                for countX in range(self.numX):
-                    itkIm.SetPixel( [countY, countX], self.resCaImage[countY, countX])
+           
+            for freqBin in range(7):
+                for countY in range(self.numY):
+                    for countX in range(self.numX):
+                        itkIm.SetPixel( [countY, countX], self.CaAvgImage[countY, countX, freqBin])
 
-            writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + 'resolvableCa.mhd')
-            writer.Update()
+                writer.SetInput(itkIm)
+                writer.SetFileName(itkFileName + 'caBin' + str(freqBin) + '.mhd')
+                writer.Update()
             
-            for countY in range(self.numY):
-                for countX in range(self.numX):
-                    itkIm.SetPixel( [countY, countX], self.unResCaImage[countY, countX])
+            for freqBin in range(7):
+                for countY in range(self.numY):
+                    for countX in range(self.numX):
+                        itkIm.SetPixel( [countY, countX], self.CaSlopeImage[countY, countX, freqBin])
 
-            writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + 'unresolvableCa.mhd')
-            writer.Update()
+                writer.SetInput(itkIm)
+                writer.SetFileName(itkFileName + 'CaSlope' + str(freqBin) + '.mhd')
+                writer.Update()
 
 
             for countY in range(self.numY):
@@ -172,23 +165,59 @@ class collapsedAverageImage(rfClass):
         self.SetRoiFixedSize(self.gsWindowXmm, self.gsWindowYmm)
         self.ReadFrame()
         dataBlock = self.data[self.roiY[0]:self.roiY[1], self.roiX[0]:self.roiX[1]]
-        caTot,caRes, caUnRes, sigma, mu =self.CalculateGeneralizedSpectrum(dataBlock)
-
-        print "The average over the whole CA is: " + str(caTot)
-        print "The average over the resolvable portion is: " + str(caRes)
+        out1, out2, mu,sigma = self.CalculateGeneralizedSpectrum(dataBlock)
 
         from matplotlib import pyplot
         pyplot.plot(self.CAaxis, self.CA, 'k')
         pyplot.ylabel('Magnitude')
         pyplot.xlabel('Frequency difference (MHz)')
-        pyplot.axvspan(self.psdLimit, self.resolvableLimit , alpha = .3)
-        pyplot.savefig(fname + 'collapsedAverage.png')
+        pyplot.savefig(fname + 'collapsedAverage.pdf')
+        pyplot.close()
+   
+        from matplotlib import pyplot
+        import pdb
+        pdb.set_trace()
+        fig = pyplot.figure()
+        axes = fig.add_subplot(111)
+        spacingAxis = 1540./(2*self.CAaxis*10**6)*10**3
+        axes.plot(self.CAaxis, self.CA, 'k')
+        step = len(self.CAaxis)//5
+        print "step is " + str(step)
+        xticks = self.CAaxis[0::step]
+        axes.set_xticks(xticks)
+        xticklabelsFloats = spacingAxis[0::step]
+        xtickLabels = [ '{:.2f}'.format(j) for j in xticklabelsFloats ]
+        axes.set_xticklabels(xtickLabels )
+        axes.set_ylabel('Magnitude')
+        axes.set_xlabel('Scatterer Spacing (mm)')
+        pyplot.savefig(fname + 'collapsedAveragePlotBySpacing.png')
+        pyplot.close()
+       
+        #color different regions from by each sigma
+        '''fig = pyplot.figure()
+        axes = fig.add_subplot(111)
+        spacingAxis = 1540./(2*self.CAaxis*10**6)*10**3
+        axes.plot(self.CAaxis, self.CA, 'k')
+        step = len(self.CAaxis)//5
+        print "step is " + str(step)
+        xticks = self.CAaxis[0::step]
+        axes.set_xticks(xticks)
+        xticklabelsFloats = spacingAxis[0::step]
+        xtickLabels = [ '{:.2f}'.format(j) for j in xticklabelsFloats ]
+        axes.set_xticklabels(xtickLabels )
+        axes.set_ylabel('Magnitude')
+        axes.set_xlabel('Scatterer Spacing (mm)')
+        for i in range(3):
+            axes.axvspan(sigma*(2*i), sigma*(2*i+1), alpha = .5) '''
+
+        pyplot.savefig(fname + 'collapsedAveragePlotBySpacingColored.png')
         pyplot.close()
         
         pyplot.imshow( numpy.flipud(abs(self.GS)), extent= [self.gsFreq.min(), self.gsFreq.max(), self.gsFreq.min(),
         self.gsFreq.max()] )        
         pyplot.xlabel('Frequency (MHz)')
         pyplot.ylabel('Frequency (MHz)')
+        pyplot.colorbar()
         pyplot.savefig(fname + 'generalizedSpectrum.png')
         pyplot.close()
 
@@ -227,12 +256,15 @@ class collapsedAverageImage(rfClass):
         param, message = optimize.leastsq(errfunc, param0, args)
         mu = param[0]
         sigma = param[1]
+        if sigma < .75:
+            sigma = .75
 
         #set low and high frequency cutoffs based on output mu, sigma
-        lowCut = mu - 2*sigma
+        #3 Sigmas is 1% intensity on PSD is -20 dB
+        lowCut = mu - 3*sigma
         if lowCut < 0:
             lowCut = 0
-        highCut = mu + 2*sigma
+        highCut = mu + 3*sigma
         if highCut > self.fs/10**6:
             highCut = self.fs/10**6
 
@@ -250,7 +282,9 @@ class collapsedAverageImage(rfClass):
         GS = numpy.zeros( (self.psdPoints, self.psdPoints,3 ) , numpy.complex128)
         
         for r in range(3):
-            dataWindow = maxDataWindow[self.psdPoints/2*r:self.psdPoints/2*r + self.psdPoints, :]*windowFuncPsd
+            dataWindow = maxDataWindow[self.psdPoints/2*r:self.psdPoints/2*r + self.psdPoints, :]
+            maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
+            dataWindow*=windowFuncPsd
             tempPoints = dataWindow.shape[0]
             tempLines = dataWindow.shape[1]
             fourierData = numpy.zeros( dataWindow.shape, numpy.complex128 )
@@ -259,7 +293,6 @@ class collapsedAverageImage(rfClass):
                 fourierData[:,l] = chirpz(dataWindow[:,l], cztA, cztW, self.psdPoints)
 
             #get point delay in seconds
-            maxPointDelay = dataWindow.argmax(axis = 0 )/self.fs
             delta = numpy.outer(spectrumFreq*10**6,maxPointDelay)
             phase = numpy.exp(1j*2*numpy.pi*delta)
             
@@ -267,9 +300,9 @@ class collapsedAverageImage(rfClass):
                 outerProd = numpy.outer(fourierData[:,l]*phase[:,l], fourierData[:,l].conjugate()*phase[:,l].conjugate() )
                 GS[:,:,r] += outerProd/abs(outerProd)
 
-       
-        GS = GS.sum(axis = 2)
+        numSegs = tempLines*3
         
+        GS = GS.sum(axis = 2)/numSegs
         ##############################################
         ########COMPUTE COLLAPSED AVERAGE#############
         ##############################################
@@ -287,6 +320,7 @@ class collapsedAverageImage(rfClass):
                 self.CA[d] += abs(GS[f1,f2])
                 counts[d] += 1
 
+        
         self.CA /= counts
         self.CAaxis = numpy.arange(numFreq)*freqStep
         self.GS = GS
@@ -294,34 +328,87 @@ class collapsedAverageImage(rfClass):
         #######################################
         ########COMPUTE THE AVERAGE OF THE#####
         ########COLLAPSED AVERAGE##############
+        ###########AND THE SLOPE###############
+        ###CA avg. bins:
+        ###0.0-1.0 sigma
+        ###1.0-2.0 sigma
+        ###2.0-3.0 sigma
+        ###3.0-4.0 sigma
+        ###4.0-5.0 sigma
+        ###5.0-6.0 sigma
+        ###0.0-6.0 sigma
         #######################################
-        self.resolvableLimit = 2*sigma
-        print " The resolvable scattering limit is: " + str(self.resolvableLimit)
+
+        ###Work out leakage location from PSD#######
         self.psdLimit = (1540./(2*self.gsWindowYmm*10**-3/2 ))/10**6
-        print " The scattering from scatterers larger than the axial window begins at: " + str(self.psdLimit)
+        secondDeriv = self.CA[0:-2] - 2*self.CA[1:-1] + self.CA[2:]
+        psdInd = int(self.psdLimit/freqStep) 
+        psdInd = secondDeriv[0:psdInd+10].argmax() + 1
+
+        print "The PSD leakage stops at: " + str(secondDeriv[0:psdInd+10].argmax()  +1 )
         
-        avgCAresolvable = 0.
-        resCount = 0
-        avgCAunresolvable = 0.
-        unResCount = 0
-        avgCA = 0.
-        totCount = 0
+        CAbinned = numpy.zeros(7)
+        CAcounts = numpy.zeros(7)
+        CAslope = numpy.zeros(7)
+        
         for f, val in enumerate(self.CA):
-            if f*freqStep > self.psdLimit and f*freqStep < self.resolvableLimit:
-                avgCAresolvable += val
-                resCount += 1
-            if f*freqStep > self.resolvableLimit:
-                avgCAunresolvable += val
-                unResCount += 1
+            if f*freqStep > self.psdLimit and f*freqStep < 1.0*sigma:
+                CAbinned[0] += val
+                CAcounts[0] += 1
+            elif f*freqStep > 1.0*sigma and f*freqStep < 2.0*sigma:
+                CAbinned[1] += val
+                CAcounts[1] += 1
+            elif f*freqStep > 2.0*sigma and f*freqStep < 3.0*sigma:
+                CAbinned[2] += val
+                CAcounts[2] += 1
+            elif f*freqStep > 3.0*sigma and f*freqStep < 4.0*sigma:
+                CAbinned[3] += val
+                CAcounts[3] += 1
+            elif f*freqStep > 4.0*sigma and f*freqStep < 5.0*sigma:
+                CAbinned[4] += val
+                CAcounts[4] += 1
+            elif f*freqStep > 5.0*sigma and f*freqStep < 6.0*sigma:
+                CAbinned[5] += val
+                CAcounts[5] += 1
+            
             if f*freqStep > self.psdLimit:
-                avgCA += val
-                totCount += 1
+                CAbinned[6] += val
+                CAcounts[6] += 1
 
-        if resCount > 0:
-            avgCAresolvable /= resCount
-        if unResCount > 0:
-            avgCAunresolvable /= unResCount
-        if totCount > 0:
-            avgCA /= totCount
 
-        return avgCA, avgCAresolvable, avgCAunresolvable, mu, sigma
+        for ind,count in enumerate(CAcounts):
+            if val > 0:
+                CAbinned[ind] /= count 
+
+        
+        ##compute slope of Collapsed Average
+        for ind in range(7):
+            if ind == 0 or ind == 6:
+                lowCut = int(self.psdLimit/freqStep)
+            else:
+                lowCut = int(sigma*ind/freqStep)
+            
+            highCut = int(sigma*(ind+1)/freqStep)
+
+            CAslope[ind] = self.ComputeSlope( self.CA[lowCut:highCut], self.CAaxis[lowCut:highCut])
+        
+        return CAbinned, CAslope, mu, sigma
+
+
+    def ComputeSlope(self, yData, xData):
+        from numpy import zeros, ones, array
+        from numpy.linalg import lstsq
+        #want to solve equation y = mx + b for m
+        #[x1   1      [m     = [y1
+        # x2   1       b ]      y2
+        # x3   1]               y3]
+        #
+        #strain image will be smaller than displacement image
+        A = ones( (len(xData),2) )
+        A[:,0] = xData
+        
+
+        b = yData
+        out = lstsq(A, b)
+        xVec = out[0]
+        return xVec[0]
