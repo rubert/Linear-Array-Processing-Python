@@ -1,7 +1,5 @@
 class rfClass(object):
 
-    roiX = None
-    roiY = None
     bModeImageCount = 0
 
     def __init__(self, filename, dataType, centerFreqSimulation = 5.0, sigmaSimulation = 1.0, fsSimulation = 40.0):
@@ -122,6 +120,20 @@ class rfClass(object):
             self.deltaX = .2  #beamspacing in mm
             self.fovX = self.lines*self.deltaX
 
+        
+        self.roiX = [0, self.lines-1]
+        self.roiY = [0, self.points - 1]
+
+    def __iter__(self):
+        self.iterIndex = 0
+        return self
+
+    def next(self):
+        if self.index == self.nFrames:
+            raise StopIteration
+        self.ReadFrame(self.iterIndex)
+        self.iterIndex += 1
+        return self.data.copy()
 
     def ReadFrame(self, frameNo = 0):
         '''Read a single frame from the input file, the method varies depending on the file type that
@@ -252,7 +264,7 @@ class rfClass(object):
             self.fovY = self.deltaY*self.points
 
 
-    def SaveBModeImages(self, fname, images = 0, itkFileName = None):
+    def SaveBModeImages(self, fname, image = 0, itkFileName = None):
 
         """Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
         frames from a data set."""
@@ -262,7 +274,7 @@ class rfClass(object):
         import matplotlib.pyplot as plt
         import matplotlib.cm as cm
 
-        self.ReadFrame(images)
+        self.ReadFrame(image)
         bMode = log10(abs(hilbert(self.data, axis = 0)))
         bMode = bMode - bMode.max()
         bMode[ bMode < -3] = -3
@@ -274,7 +286,7 @@ class rfClass(object):
         ax.set_ylabel('Depth (mm) ' )
         ax.set_xticks( arange(0, self.fovX, 10) )
         ax.set_yticks( arange(0, self.fovY, 10) )
-        plt.savefig(fname + '_f' + str(images).zfill(3) + '.png')
+        plt.savefig(fname + '.png')
         plt.close()
 
         if itkFileName:
@@ -369,8 +381,8 @@ class rfClass(object):
             yHigh = self.points+1
         yLow = yHigh - self.windowY
 
-        rfClass.roiX = [xLow, xHigh]
-        rfClass.roiY = [yLow, yHigh]
+        self.roiX = [xLow, xHigh]
+        self.roiY = [yLow, yHigh]
 
         #Draw Analysis Window
         import matplotlib.cm as cm
@@ -424,45 +436,23 @@ class rfClass(object):
 
 
         def on_select(eclick, erelease):
-            rfClass.roiX = [0,0]
-            rfClass.roiY = [0,0]
-            #lower boundary, make sure it doesn't violate block matching constraints
-            tempX   = int(erelease.xdata/self.deltaX)
-            if tempX < self.minimumROIBoundaryX:
-                tempX = self.minimumROIBoundaryX
-            if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
-                tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1
-            rfClass.roiX[0] = tempX
+            self.roiX = [0,0]
+            self.roiY = [0,0]
+            
+            self.roiX[0]   = int(erelease.xdata/self.deltaX)
+            self.roiX[1]   = int(eclick.xdata/self.deltaX)
+            self.roiX.sort()
 
-            tempX   = int(eclick.xdata/self.deltaX)
-            if tempX < self.minimumROIBoundaryX:
-                tempX = self.minimumROIBoundaryX
-            if tempX > self.data.shape[1] - self.minimumROIBoundaryX - 1:
-                tempX = self.data.shape[1] -self.minimumROIBoundaryX - 1
-            rfClass.roiX[1] = tempX
-
-            tempY   = int(eclick.ydata/self.deltaY)
-            if tempY < self.minimumROIBoundaryY:
-                tempY = self.minimumROIBoundaryY
-            if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
-                tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1
-            rfClass.roiY[0] = tempY
-
-            tempY   = int(erelease.ydata/self.deltaY)
-            if tempY < self.minimumROIBoundaryY:
-                tempY = self.minimumROIBoundaryY
-            if tempY > self.data.shape[0] - self.minimumROIBoundaryY - 1:
-                tempY = self.data.shape[0] -self.minimumROIBoundaryY - 1
-            rfClass.roiY[1] = tempY
-
+            self.roiY[0]   = int(eclick.ydata/self.deltaY)
+            self.roiY[1]   = int(erelease.ydata/self.deltaY)
+            self.roiY.sort()
 
         # drawtype is 'box' or 'line' or 'none'
         rs = RectangleSelector(current_ax, on_select,
                                                drawtype='box', useblit=True,
                                                button=[1,3], # don't use middle button
-                                               minspanx=5, minspany=5,
+                                               minspanx=0, minspany=0,
                                                spancoords='data')
-
 
         #could be image sequence or just a 2-D image
         import types
@@ -566,8 +556,8 @@ class rfClass(object):
         bMode = ma.array(bMode)
         bMode.mask = zeros(bMode.shape)
         #replace some B-mode data with sentinels
-        xLow = min(rfClass.roiX); xHigh = max(rfClass.roiX)
-        yLow = min(rfClass.roiY); yHigh = max(rfClass.roiY)
+        xLow = min(self.roiX); xHigh = max(self.roiX)
+        yLow = min(self.roiY); yHigh = max(self.roiY)
 
         bMode.mask[yLow:yHigh, xLow] = True
         bMode.mask[yLow:yHigh, xHigh] = True
@@ -614,7 +604,7 @@ class rfClass(object):
 
     
     def ShowRoiImage(self):
-        bMode = self.createRoiArray()
+        bMode = self.CreateRoiArray()
         #import matplotlib and create plot
         import matplotlib.pyplot as plt
         import matplotlib.cm as cm
@@ -638,10 +628,3 @@ class rfClass(object):
         plt.savefig(fname)
         plt.close()
 
-
-if __name__ == '__main__':
-
-    from rfData import rfClass
-    import sys
-    bImage = rfClass(sys.argv[1], 'rfd')
-    bImage.WriteItkBMode(sys.argv[1][:-4])

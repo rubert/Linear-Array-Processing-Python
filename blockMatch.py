@@ -46,7 +46,8 @@ class UniquePriorityQueue(PriorityQueue):
 class blockMatchClass(rfClass):
 
 
-    def __init__(self, fname, dataType, postFile = None,  windowYmm = 1.0, windowXmm = 4.0, rangeYmm = 1.0, rangeXmm = .6, overlap = .65, strainKernelmm = 6.0):
+    def __init__(self, fname, dataType, postFile = None,  selectRoi = False,windowYmm = 1.0, windowXmm = 4.0, rangeYmm = 1.0, rangeXmm = .6, overlap = .65,
+    strainKernelmm = 6.0):
         '''Input:
         fname: (string)  Either a file containing a sequence of frames with motion, or a pre-compression file.
         dataType: (string)  The filetype of the input files, see rfClass for allowed types
@@ -91,34 +92,71 @@ class blockMatchClass(rfClass):
 
         #overlap and step
         self.overlap = overlap
-        self.stepY =int( (1 - overlap)*self.windowY )
-        ####work out boundaries
-        startY = 0 + self.rangeY + self.smallRangeY + self.halfY
-        stepY =int( (1 - self.overlap)*self.windowY )
-        stopY = self.points - self.halfY - self.smallRangeY - self.rangeY #last pixel that can fit a window
+        self.stepY =int( (1 - self.overlap)*self.windowY )
 
-        startX = self.halfX + self.rangeX + self.smallRangeX
-        stopX = self.lines - self.halfX - self.smallRangeX - self.rangeX
 
-        self.startY = startY
-        self.stopY =stopY
-        self.startX = startX
-        self.stopX = stopX
+        ####work out tracking boundaries
+        self.startY = 0 + self.rangeY + self.smallRangeY + self.halfY
+        self.stopY = self.points - self.halfY - self.smallRangeY - self.rangeY #last pixel that can fit a window
+
+        self.startX = 0 + self.halfX + self.rangeX + self.smallRangeX
+        self.stopX = self.lines - self.halfX - self.smallRangeX - self.rangeX
+        
+        
+        ###Allow for selection of an ROI####
+        if selectRoi:
+            self.SetRoiBoxSelect()
+            
+            if self.roiX[0] > self.startX:
+                self.startX = self.roiX[0]
+
+            if self.roiX[1] < self.stopX:
+                self.stopX = self.roiX[1]
+            
+            if self.roiY[0] > self.startY:
+                self.startY = self.roiY[0]
+
+            if self.roiY[1] < self.stopY:
+                self.stopY = self.roiY[1]
+
+        
+        ###Re-adjust roiX, roiY for display
+        self.roiY = [self.startY, self.stopY]
+        self.roiX = [self.startX, self.stopX]
+
+        if selectRoi:
+            self.ShowRoiImage()
+
     ###create arrays containing window centers in rf data coordinates
-        self.windowCenterY = range(startY,stopY, stepY)
+        self.windowCenterY = range(self.startY,self.stopY, self.stepY)
         self.numY = len(self.windowCenterY)
 
-        self.windowCenterX = range(startX,stopX)
+        self.windowCenterX = range(self.startX,self.stopX)
         self.numX = len(self.windowCenterX)
 
 
     #work out strainwindow in rf pixels, divide by step to convert to displacement pixels
     #make odd number
-        self.strainWindow = int(strainKernelmm/(self.deltaY*stepY) )
+        self.strainWindow = int(strainKernelmm/(self.deltaY*self.stepY) )
         if not self.strainWindow%2:
             self.strainWindow += 1
         self.halfLsq = self.strainWindow//2
         self.strainwindowmm = self.strainWindow*self.deltaY*self.stepY
+       
+        if self.numY - 1 < self.strainWindow or self.numX < 1:
+            print "ROI is too small"
+            import sys
+            sys.exit()
+
+    def WriteParameterFile(self, fname):
+        'Write the block matching parameters to file'
+        f = open(fname, 'w')
+        f.write('Axial window length: ' + str(self.windowYmm) + ' mm. \n')
+        f.write('Lateral window length: ' + str(self.windowXmm) + ' mm. \n')
+        f.write('Axial search range: ' + str(self.rangeYmm) + ' mm. \n')
+        f.write('Lateral search range: ' + str(self.rangeXmm) + ' mm. \n')
+        f.write('Ovlerlap: ' + str(self.overlap) + '\n' )
+
 
     def InitializeArrays(self):
         '''Called to clear out displacement and quality arrays if
@@ -153,7 +191,7 @@ class blockMatchClass(rfClass):
     #for determining bad seeds
         self.threshold = round( (self.numY/10)*(self.numX/10) )
 
-    def CreateStrainImage(self, preFrame = 0, skipFrame = 0, vMax = None, itkFileName = None):
+    def CreateStrainImage(self, preFrame = 0, skipFrame = 0, vMax = None, pngFileName = None, itkFileName = None):
         '''With the given parameters, pre, and post RF data create a strain image.'''
 
         #get pre and post frame
@@ -182,13 +220,6 @@ class blockMatchClass(rfClass):
         stepY =self.stepY
         stepX =1
 
-        if vMax:
-            self.strain[self.strain> vMax] = vMax
-        self.strainRGB = self.CreateParametricImage(self.strain,[startY, startX], [stepY, stepX], colormap = 'gray' )
-        self.dpYRGB = self.CreateParametricImage(self.dpY,[startYdp, startX], [stepY, stepX] )
-        self.dpXRGB = self.CreateParametricImage(self.dpX,[startYdp, startX], [stepY, stepX])
-        self.qualityRGB = self.CreateParametricImage(self.quality,[startYdp, startX], [stepY, stepX] )
-
         #Write image to itk format
         if itkFileName:
 
@@ -205,7 +236,9 @@ class blockMatchClass(rfClass):
             itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
             writer = itk.ImageFileWriter.IF2.New()
             writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + '.mhd')
+            if itkFileName[-4:] != '.mhd':
+                itkFileName += '.mhd'
+            writer.SetFileName(itkFileName)
             writer.Update()
 
             for countY in range(self.strain.shape[0]):
@@ -213,8 +246,30 @@ class blockMatchClass(rfClass):
                     itkIm.SetPixel( [countY, countX], self.quality[countY, countX])
 
             writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName + 'quality.mhd')
+            writer.SetFileName(itkFileName[:-4] + 'quality.mhd')
             writer.Update()
+       
+        ##Write image to PNG
+        if vMax:
+            self.strain[self.strain> vMax] = vMax
+        
+        self.strainRGB = self.CreateParametricImage(self.strain,[startY, startX], [stepY, stepX], colormap = 'gray' )
+        self.dpYRGB = self.CreateParametricImage(self.dpY,[startYdp, startX], [stepY, stepX] )
+        self.dpXRGB = self.CreateParametricImage(self.dpX,[startYdp, startX], [stepY, stepX])
+        self.qualityRGB = self.CreateParametricImage(self.quality,[startYdp, startX], [stepY, stepX] )
+
+        if pngFileName:
+            
+            if pngFileName[-4:] != '.png':
+                pngFileName += '.png'
+            from matplotlib import pyplot
+            pyplot.imshow(self.strainRGB, extent = [0, self.fovX, self.fovY, 0], vmax = self.strain.max(), vmin = 0,
+            cmap = 'gray')
+            pyplot.colorbar()
+            pyplot.savefig(pngFileName)
+            pyplot.close()
+
+
 
 
     def Sub2ind(self,shape, row, col):
@@ -531,8 +586,6 @@ The assumption is that f(x) = ax^2 + bx + c"""
                 out = lstsq(A, b)
                 xVec = out[0]
                 self.strain[y - halfWindow,x] = xVec[0]
-
-
 
         self.strain = self.strain/self.stepY
         self.strain = abs(self.strain)
