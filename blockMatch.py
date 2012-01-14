@@ -225,6 +225,8 @@ class blockMatchClass(rfClass):
 
             import itk
             p = itk.Point.F2() #solely because of ITK bug
+          
+            #First strain
             itkIm = itk.Image.F2.New()
             itkIm.SetRegions(self.strain.shape)
             itkIm.Allocate()
@@ -232,22 +234,44 @@ class blockMatchClass(rfClass):
                 for countX in range(self.strain.shape[1]):
                     itkIm.SetPixel( [countY, countX], self.strain[countY, countX])
 
+            halfWind = int( (self.strainWindow-1)/2 )
             itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepX] )
-            itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+            itkIm.SetOrigin( [(startY + halfWind)*self.deltaY, startX*self.deltaX] )
             writer = itk.ImageFileWriter.IF2.New()
             writer.SetInput(itkIm)
             if itkFileName[-4:] != '.mhd':
                 itkFileName += '.mhd'
             writer.SetFileName(itkFileName)
             writer.Update()
+            
+            #Now displacement
+            itkIm = itk.Image.F2.New()
+            itkIm.SetRegions(self.dpY.shape)
+            itkIm.Allocate()
+            for countY in range(self.dpY.shape[0]):
+                for countX in range(self.dpY.shape[1]):
+                    itkIm.SetPixel( [countY, countX], self.dpY[countY, countX])
 
-            for countY in range(self.strain.shape[0]):
-                for countX in range(self.strain.shape[1]):
-                    itkIm.SetPixel( [countY, countX], self.quality[countY, countX])
-
+            itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepX] )
+            itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+            writer = itk.ImageFileWriter.IF2.New()
             writer.SetInput(itkIm)
-            writer.SetFileName(itkFileName[:-4] + 'quality.mhd')
+            
+            writer.SetFileName(itkFileName[:-4] + 'dispY.mhd')
             writer.Update()
+
+            for countY in range(self.dpX.shape[0]):
+                for countX in range(self.dpX.shape[1]):
+                    itkIm.SetPixel( [countY, countX], self.dpX[countY, countX])
+
+            itkIm.SetSpacing( [self.deltaY*stepY, self.deltaX*stepX] )
+            itkIm.SetOrigin( [startY*self.deltaY, startX*self.deltaX] )
+            writer = itk.ImageFileWriter.IF2.New()
+            writer.SetInput(itkIm)
+            
+            writer.SetFileName(itkFileName[:-4] + 'dispX.mhd')
+            writer.Update()
+
        
         ##Write image to PNG
         if vMax:
