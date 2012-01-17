@@ -448,11 +448,14 @@ class rfClass(object):
             self.roiY.sort()
 
         # drawtype is 'box' or 'line' or 'none'
+        rectprops = dict(facecolor='red', edgecolor = 'red',
+                 alpha=0.5, fill=False)
         rs = RectangleSelector(current_ax, on_select,
                                                drawtype='box', useblit=True,
                                                button=[1,3], # don't use middle button
                                                minspanx=0, minspany=0,
-                                               spancoords='data')
+                                               spancoords='data', 
+                                               rectprops = rectprops)
 
         #could be image sequence or just a 2-D image
         import types
@@ -474,7 +477,7 @@ class rfClass(object):
         plt.show()
 
 
-    def CreateParametricImage(self, paramImage, origin, spacing, colormap = 'jet'):
+    def CreateParametricImage(self, paramImage, origin, spacing, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
         '''Input:
            paramImage: The image to place within the B-mode image
            origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
@@ -488,6 +491,12 @@ class rfClass(object):
         from numpy import arange,zeros
         from scipy import interpolate
 
+        if vmin:
+            paramImage[paramImage < vmin] = vmin
+
+        if vmax:
+            paramImage[paramImage > vmax] = vmax
+        
         self.paramValMax = paramImage.max()
         self.paramValMin = paramImage.min()
         #work out size of region in B-mode image
@@ -523,6 +532,7 @@ class rfClass(object):
         tempIm = palette.to_rgba(paramImageUp)
 
         '''Create B-mode image'''
+        self.ReadFrame(frameNo)
         from scipy.signal import hilbert
         from numpy import log10
         bMode = log10(abs(hilbert(self.data, axis = 0)))
