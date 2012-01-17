@@ -1,33 +1,52 @@
 def interp2(x,y,z, xi, yi):
     '''This function implements cubic interpolation without splines as described in:
         Cubic convolution interpolation for digital image processing.  Robert Keys.
-        IEEE transactions on acoustics, speech, and signal processing.  Vol. 29. No. 6. 1981.'''
+        IEEE transactions on acoustics, speech, and signal processing.  Vol. 29. No. 6. 1981.
+
+     Input:
+            x:  A 1-D array containing the known values' x-location
+            y: A 1-D array containing the known values' y-location
+            z: A 2-D array containing the known values
+            xi: 1-D or 2-D array of x-coordinates to be interpolated to
+            yi: 1-D or 2-D array of y-coordinates to be interpolated to
+
+    Output:
+            F:  1-D or 2-D array of interpolated values
+    '''
 
     ##TODO change from matlab indexing##
-
     import numpy as np
     
     rows, cols = z.shape
-    mx = len(x)
-    my = len(y)
+    
+    if len(x) != cols or len(y) != rows:
+        print 'length of x and y arrays must match z shape'
+        import sys
+        sys.exit()
+
+    xiOrig = xi.copy()
+    xi = xi.flatten()
+    yi = yi.flatten()
+
+    if len(xi) != len(yi):
+        print 'Length of xi and yi should match'
+        import sys
+        sys.exit()
+
 
     #Normalize the units on the requested positions to the given positions
     s = 1 + (xi - x[0])/(x[-1] - x[0])*(cols - 1)
     t = 1 + (yi - y[0])/(y[-1] - y[0])*(rows - 1)
 
-    if np.any(t < 1) or np.any( s< 1) or np.any(t > rows) or np.any(s > cols):
-        print 'xi or yi is out of bounds'
-        import sys
-        sys.exit()
-
     #2-D array element indexing, adjusted for boundary padding
     ndx = (t).astype('int') + (s - 1).astype('int')*(rows + 2)
 
-    # Check for out of range values of s and set to 1
-    s[(s<1) or (s>cols)] = 1
+    # Check for out of range values of s and set coordinate to 1
+    #  + with logical arrays is like or
+    s[(s<1) + (s>cols)] = 1
 
-    # Check for out of range values of t and set to 1
-    s[(t<1) or (s>rows)] = 1
+    # Check for out of range values of t and set coordinate to 1
+    s[(t<1) + (t>rows)] = 1
     
     #check for boundary values
     d = s==cols
@@ -76,4 +95,4 @@ def interp2(x,y,z, xi, yi):
             
     F /= 4;
 
-    return F
+    return F.reshape(xiOrig.shape)

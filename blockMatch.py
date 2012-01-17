@@ -278,14 +278,6 @@ class blockMatchClass(rfClass):
             pyplot.savefig(pngFileName)
             pyplot.close()
 
-
-
-
-    def Sub2ind(self,shape, row, col):
-        """Takes shape as a tuple with two entries"""
-
-        return shape[1]*row + col
-
     def SubSampleFit(self,f):
         """This function takes a 3 by 1 array assumes a quadratic function and finds the maximum as if the function were continuous.
 The assumption is that f(x) = ax^2 + bx + c"""
@@ -303,25 +295,28 @@ The assumption is that f(x) = ax^2 + bx + c"""
         """Add up to four neighbors to a point to the seed list.  Perform bounds checking to make sure the neighbors aren't
         located out of the image.  Notice that the Normalized cross-correlation goes in as the quality metric, and that the
         sign will be reversed inside the function as necessary. """
+    
+
+        Sub2ind = lambda shape, row, col : shape[1]*row + col
 
         #add point above
         if y > 0 and not self.processed[y-1,x]:
-            self.seedList.put( (-maxCC, self.Sub2ind(self.dpY.shape, y-1, x), intDpY,intDpX, region))
+            self.seedList.put( (-maxCC, Sub2ind(self.dpY.shape, y-1, x), intDpY,intDpX, region))
 
 
         #add point below
         if y < self.numY - 1 and not self.processed[y+1,x]:
-            self.seedList.put((-maxCC, self.Sub2ind(self.dpY.shape, y+1, x), intDpY,intDpX,region) )
+            self.seedList.put((-maxCC, Sub2ind(self.dpY.shape, y+1, x), intDpY,intDpX,region) )
 
         #add point to left
         if x > 0 and not self.processed[y,x-1]:
 
-            self.seedList.put( (-maxCC, self.Sub2ind(self.dpY.shape, y, x-1),intDpY,intDpX,region) )
+            self.seedList.put( (-maxCC, Sub2ind(self.dpY.shape, y, x-1),intDpY,intDpX,region) )
 
         #add point to right
         if x < self.numX - 1 and not self.processed[y, x+1]:
 
-            self.seedList.put( (-maxCC, self.Sub2ind(self.dpY.shape, y, x+1),intDpY,intDpX,region) )
+            self.seedList.put( (-maxCC, Sub2ind(self.dpY.shape, y, x+1),intDpY,intDpX,region) )
 
 
 

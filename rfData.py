@@ -477,7 +477,7 @@ class rfClass(object):
         plt.show()
 
 
-    def CreateParametricImage(self, paramImage, origin, spacing, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
+    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
         '''Input:
            paramImage: The image to place within the B-mode image
            origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
@@ -487,9 +487,21 @@ class rfClass(object):
            colormap:  The colormap of the parametric image
 
          '''
-
+       
+        import numpy 
         from numpy import arange,zeros
         from scipy import interpolate
+
+        if not inPixels:
+            origin = numpy.array(origin); spacing = numpy.array(spacing)
+            
+            origin[0] /= self.deltaY
+            spacing[0] /= self.deltaY
+            origin[1] /= self.deltaX
+            spacing[1] /= self.deltaX
+
+            origin = origin.round().astype('int')
+            spacing = spacing.round().astype('int')
 
         if vmin:
             paramImage[paramImage < vmin] = vmin
