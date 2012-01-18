@@ -264,7 +264,7 @@ class rfClass(object):
             self.fovY = self.deltaY*self.points
 
 
-    def SaveBModeImages(self, fname, image = 0, itkFileName = None):
+    def SaveBModeImage(self, fname, image = 0, itkFileName = None, noPng = False):
 
         """Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
         frames from a data set."""
@@ -279,39 +279,33 @@ class rfClass(object):
         bMode = bMode - bMode.max()
         bMode[ bMode < -3] = -3
         #import matplotlib and create plot
-        fig = plt.figure()
-        ax = fig.add_subplot(1,1,1)
-        ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-        ax.set_xlabel('Width (mm) ' )
-        ax.set_ylabel('Depth (mm) ' )
-        ax.set_xticks( arange(0, self.fovX, 10) )
-        ax.set_yticks( arange(0, self.fovY, 10) )
-        plt.savefig(fname + '.png')
-        plt.close()
+        if not noPng: 
+            fig = plt.figure()
+            ax = fig.add_subplot(1,1,1)
+            ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+            ax.set_xlabel('Width (mm) ' )
+            ax.set_ylabel('Depth (mm) ' )
+            ax.set_xticks( arange(0, self.fovX, 10) )
+            ax.set_yticks( arange(0, self.fovY, 10) )
+            plt.savefig(fname + '.png')
+            plt.close()
 
         if itkFileName:
-            if 'mhd' not in itkFileName:
-                itkFilename += '.mhd'
 
-            import itk
-            p = itk.Point.F2()  #just to work around a bug in ITK's python wrappers
-            itkIm = itk.Image.F2.New()
-            itkIm.SetRegions(bMode.shape)
-            itkIm.Allocate()
-            for countY in range(self.points):
-                for countX in range(self.lines):
-                    itkIm.SetPixel( [countY, countX], bMode[countY, countX])
-
+            import SimpleITK as sitk 
+            
+            itkIm = sitk.GetImageFromArray(bMode)
             itkIm.SetSpacing( [self.deltaY, self.deltaX] )
-            itkIm.SetOrigin( [0.0, 0.0] )
-            writer = itk.ImageFileWriter.IF2.New()
-            writer.SetInput(itkIm)
+            itkIm.SetOrigin( [0., 0.] )
+            
+            writer = sitk.ImageFileWriter()
+            if itkFileName[-4:] != '.mhd':
+                itkFileName += '.mhd'
             writer.SetFileName(itkFileName)
-            writer.Update()
+            
+            writer.Execute(itkIm)
 
-
-
-    def MakeBmodeImage(self, frameNo = 0, showFig = True):
+    def DisplayBmodeImage(self, frameNo = 0, showFig = True):
         """Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
         frames from a data set."""
 
@@ -336,146 +330,6 @@ class rfClass(object):
 
         if showFig:
             plt.show()
-
-
-
-    def SetRoiFixedSize(self, windowX = 4, windowY = 4):
-        '''The Roi size here is given in mm'''
-
-
-        from matplotlib import pyplot
-        from scipy.signal import hilbert
-        from numpy import log10, arange
-
-        import types
-        if type(self.data) == types.NoneType:
-            self.ReadFrame()
-        yExtent = self.deltaY*self.points
-        xExtent = self.deltaX*self.lines
-        bmode = log10(abs(hilbert(self.data, axis=0) ) )
-        bmode = bmode - bmode.max()
-        pyplot.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
-        x= pyplot.ginput()
-        pyplot.close()
-        #Compute the size of the analysis window in points and A-lines
-        self.windowY = int(windowY/self.deltaY)
-        self.windowX = int(windowX/self.deltaX)
-
-        #Compute the center of the bounding box in pixels
-        boxX = int( x[0][0]/self.deltaX )
-        boxY = int( x[0][1]/self.deltaY )
-
-        xLow = boxX - self.windowX/2
-        if xLow < 0:
-            xLow = 0
-        xHigh = xLow + self.windowX
-        if xHigh > self.lines:
-            xHigh = self.lines
-        xLow = xHigh - self.windowX
-
-        yLow = boxY - self.windowY/2
-        if yLow < 0:
-            yLow = 0
-        yHigh = yLow + self.windowY
-        if yHigh > self.points+1:
-            yHigh = self.points+1
-        yLow = yHigh - self.windowY
-
-        self.roiX = [xLow, xHigh]
-        self.roiY = [yLow, yHigh]
-
-        #Draw Analysis Window
-        import matplotlib.cm as cm
-        palette = cm.gray
-        palette.set_bad('r')
-        from numpy import ma, zeros
-        bmode = ma.array(bmode)
-        bmode.mask = zeros(bmode.shape)
-
-
-        bmode.mask[yLow:yHigh, xLow] = True
-        bmode.mask[yLow:yHigh, xHigh] = True
-        #since the pixels are so much thinner in the axial direction we use ten of them to
-        #draw the ROI
-        lineThickY = 10
-        if yLow < lineThickY:
-            yLow = lineThickY
-        bmode.mask[yLow-lineThickY:yLow, xLow:xHigh] = True
-
-        if yHigh > bmode.mask.shape[0] - lineThickY:
-            yHigh = bmode.mask.shape[0] - lineThickY
-        bmode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
-
-
-        pyplot.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
-        pyplot.xticks( arange(0,self.fovX, 10) )
-        pyplot.yticks( arange(0,self.fovY, 10) )
-        pyplot.xlabel('Width (mm)')
-        pyplot.ylabel('Depth (mm)')
-        pyplot.show()
-
-
-    def SetRoiBoxSelect(self):
-        """
-        Do a mouseclick somewhere, move the mouse to some destination, release
-        the button.  This class gives click- and release-events and also draws
-        a line or a box from the click-point to the actual mouseposition
-        (within the same axes) until the button is released.  Within the
-        method 'self.ignore()' it is checked wether the button from eventpress
-        and eventrelease are the same.
-
-        """
-        #Check that a Data set has been loaded
-        if self.fname == None:
-            return
-
-        from matplotlib.widgets import RectangleSelector
-        import numpy as np
-        import matplotlib.pyplot as plt
-        current_ax = plt.subplot(111)               # make a new plotingrangej
-
-
-        def on_select(eclick, erelease):
-            self.roiX = [0,0]
-            self.roiY = [0,0]
-            
-            self.roiX[0]   = int(erelease.xdata/self.deltaX)
-            self.roiX[1]   = int(eclick.xdata/self.deltaX)
-            self.roiX.sort()
-
-            self.roiY[0]   = int(eclick.ydata/self.deltaY)
-            self.roiY[1]   = int(erelease.ydata/self.deltaY)
-            self.roiY.sort()
-
-        # drawtype is 'box' or 'line' or 'none'
-        rectprops = dict(facecolor='red', edgecolor = 'red',
-                 alpha=0.5, fill=False)
-        rs = RectangleSelector(current_ax, on_select,
-                                               drawtype='box', useblit=True,
-                                               button=[1,3], # don't use middle button
-                                               minspanx=0, minspany=0,
-                                               spancoords='data', 
-                                               rectprops = rectprops)
-
-        #could be image sequence or just a 2-D image
-        import types
-        if type(self.data) == types.NoneType:
-            self.ReadFrame(0)
-        temp = self.data
-
-
-        from scipy.signal import hilbert
-        from numpy import log10
-        bMode = log10(abs(hilbert(temp, axis = 0)))
-        bMode = bMode - bMode.max()
-        bMode[bMode < -3] = -3
-
-        #import matplotlib and create plot
-        import matplotlib.cm as cm
-
-        plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
-        plt.show()
-
 
     def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
         '''Input:
@@ -560,6 +414,143 @@ class rfClass(object):
         return bMode
 
 
+    def SetRoiFixedSize(self, windowX = 4, windowY = 4):
+        '''The Roi size here is given in mm'''
+
+
+        from matplotlib import pyplot
+        from scipy.signal import hilbert
+        from numpy import log10, arange
+
+        import types
+        if type(self.data) == types.NoneType:
+            self.ReadFrame()
+        yExtent = self.deltaY*self.points
+        xExtent = self.deltaX*self.lines
+        bmode = log10(abs(hilbert(self.data, axis=0) ) )
+        bmode = bmode - bmode.max()
+        pyplot.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+        x= pyplot.ginput()
+        pyplot.close()
+        #Compute the size of the analysis window in points and A-lines
+        self.windowY = int(windowY/self.deltaY)
+        self.windowX = int(windowX/self.deltaX)
+
+        #Compute the center of the bounding box in pixels
+        boxX = int( x[0][0]/self.deltaX )
+        boxY = int( x[0][1]/self.deltaY )
+
+        xLow = boxX - self.windowX/2
+        if xLow < 0:
+            xLow = 0
+        xHigh = xLow + self.windowX
+        if xHigh > self.lines:
+            xHigh = self.lines
+        xLow = xHigh - self.windowX
+
+        yLow = boxY - self.windowY/2
+        if yLow < 0:
+            yLow = 0
+        yHigh = yLow + self.windowY
+        if yHigh > self.points+1:
+            yHigh = self.points+1
+        yLow = yHigh - self.windowY
+
+        self.roiX = [xLow, xHigh]
+        self.roiY = [yLow, yHigh]
+
+        #Draw Analysis Window
+        import matplotlib.cm as cm
+        palette = cm.gray
+        palette.set_bad('r')
+        from numpy import ma, zeros
+        bmode = ma.array(bmode)
+        bmode.mask = zeros(bmode.shape)
+
+
+        bmode.mask[yLow:yHigh, xLow] = True
+        bmode.mask[yLow:yHigh, xHigh] = True
+        #since the pixels are so much thinner in the axial direction we use ten of them to
+        #draw the ROI
+        lineThickY = 10
+        if yLow < lineThickY:
+            yLow = lineThickY
+        bmode.mask[yLow-lineThickY:yLow, xLow:xHigh] = True
+
+        if yHigh > bmode.mask.shape[0] - lineThickY:
+            yHigh = bmode.mask.shape[0] - lineThickY
+        bmode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
+
+
+        pyplot.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
+        pyplot.xticks( arange(0,self.fovX, 10) )
+        pyplot.yticks( arange(0,self.fovY, 10) )
+        pyplot.xlabel('Width (mm)')
+        pyplot.ylabel('Depth (mm)')
+        pyplot.show()
+    
+
+    def SetRoiBoxSelect(self):
+        """
+        Do a mouseclick somewhere, move the mouse to some destination, release
+        the button.  This class gives click- and release-events and also draws
+        a line or a box from the click-point to the actual mouseposition
+        (within the same axes) until the button is released.  Within the
+        method 'self.ignore()' it is checked wether the button from eventpress
+        and eventrelease are the same.
+
+        """
+        #Check that a Data set has been loaded
+        if self.fname == None:
+            return
+
+        from matplotlib.widgets import RectangleSelector
+        import numpy as np
+        import matplotlib.pyplot as plt
+        current_ax = plt.subplot(111)               # make a new plotingrangej
+
+
+        def on_select(eclick, erelease):
+            self.roiX = [0,0]
+            self.roiY = [0,0]
+            
+            self.roiX[0]   = int(erelease.xdata/self.deltaX)
+            self.roiX[1]   = int(eclick.xdata/self.deltaX)
+            self.roiX.sort()
+
+            self.roiY[0]   = int(eclick.ydata/self.deltaY)
+            self.roiY[1]   = int(erelease.ydata/self.deltaY)
+            self.roiY.sort()
+
+        # drawtype is 'box' or 'line' or 'none'
+        rectprops = dict(facecolor='red', edgecolor = 'red',
+                 alpha=0.5, fill=False)
+        rs = RectangleSelector(current_ax, on_select,
+                                               drawtype='box', useblit=True,
+                                               button=[1,3], # don't use middle button
+                                               minspanx=0, minspany=0,
+                                               spancoords='data', 
+                                               rectprops = rectprops)
+
+        #could be image sequence or just a 2-D image
+        import types
+        if type(self.data) == types.NoneType:
+            self.ReadFrame(0)
+        temp = self.data
+
+
+        from scipy.signal import hilbert
+        from numpy import log10
+        bMode = log10(abs(hilbert(temp, axis = 0)))
+        bMode = bMode - bMode.max()
+        bMode[bMode < -3] = -3
+
+        #import matplotlib and create plot
+        import matplotlib.cm as cm
+
+        plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
+        plt.show()
+
     def CreateRoiArray(self):
         #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
@@ -596,35 +587,6 @@ class rfClass(object):
 
         return bMode
 
-    def WriteItkBMode(self, fname, frameNo = 0):
-        self.ReadFrame(frameNo)
-        temp = self.data
-
-
-        from scipy.signal import hilbert
-        from numpy import log10
-        bMode = log10(abs(hilbert(temp, axis = 0)))
-        bMode = bMode - bMode.max()
-        bMode[bMode < -3] = -3
-
-        import itk
-        p = itk.Point.F2() #just to work around a bug in ITK
-
-        itkIm = itk.Image.F2.New()
-        itkIm.SetRegions(bMode.shape)
-        itkIm.Allocate()
-        for countY in range(bMode.shape[0]):
-            for countX in range(bMode.shape[1]):
-                itkIm.SetPixel( [countY, countX], bMode[countY, countX])
-
-        itkIm.SetSpacing( [self.deltaY, self.deltaX] )
-        itkIm.SetOrigin( [0, 0] )
-        writer = itk.ImageFileWriter.IF2.New()
-        writer.SetInput(itkIm)
-        writer.SetFileName(fname + '.mhd')
-        writer.Update()
-
-    
     def ShowRoiImage(self):
         bMode = self.CreateRoiArray()
         #import matplotlib and create plot
