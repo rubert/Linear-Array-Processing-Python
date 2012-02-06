@@ -1,7 +1,5 @@
 class rfClass(object):
 
-    bModeImageCount = 0
-
     def __init__(self, filename, dataType, centerFreqSimulation = 5.0, sigmaSimulation = 1.0, fsSimulation = 40.0):
         '''Input:
            filename:  The name of the file or directory the data is from
@@ -12,9 +10,12 @@ class rfClass(object):
                         sim, file format for simulated data with linear array transducers, one frame only
                         multiSim, file format for simulated data with linear array transducers, multiple frames
                          '''
+        
+        import numpy as np
 
-        if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' or dataType == 'multiSim' ):
-            print 'Error.  Datatype must be ei,rfd,rf '
+        if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' or dataType == 'multiSim'
+        or dataType == 'multiFocus'):
+            print 'Error.  Datatype must be ei,rfd,rf, sim, multiSim, or multiFocus '
             return
 
         self.fname = filename
@@ -24,10 +25,11 @@ class rfClass(object):
         self.data = None
 
         if dataType == 'ei':
-            import os, numpy
+            import os
             startdir = os.getcwd()
             os.chdir(self.fname)
-
+            
+            self.imageType == 'la'
             metaData = open('metaData.txt', 'r')
             metaList = [0,0,0,0]
             for i in range(4):
@@ -55,7 +57,12 @@ class rfClass(object):
             import readrfd
             hInfo = readrfd.headerInfo(filename)
             self.fs = hInfo[1]
-            self.deltaX = (1/hInfo[2])*10.
+            if hInfo[4] == 'phased sector':
+                self.imageType = 'ps'
+                self.deltaX = hInfo[5]
+            else:
+                self.imageType == 'la'
+                self.deltaX = (1./hInfo[2])*10.
             #read a frame to find out number of points and A lines
             tempFrame = readrfd.readrfd(filename, 1)
             self.nFrames = readrfd.rfdframes(filename)
@@ -68,9 +75,9 @@ class rfClass(object):
 
         if dataType == 'rf':
             #The header is 19 32-bit integers
-            import numpy
+            self.imageType == 'la'
             dataFile = open(self.fname, 'r')
-            header = numpy.fromfile(dataFile, numpy.int32, 19)
+            header = np.fromfile(dataFile, np.int32, 19)
             self.header = header
             self.fs = header[15]
             self.deltaY = self.soundSpeed/(2*self.fs)*10**3
@@ -85,7 +92,8 @@ class rfClass(object):
 
             f = open(filename, 'rb')
 
-            import numpy as np
+            self.imageType == 'la'
+            
             #in Hz
             self.freqstep =float( np.fromfile(f, np.double,1) )
             self.points = int( np.fromfile(f, np.int32,1) )
@@ -104,7 +112,7 @@ class rfClass(object):
 
             f = open(filename, 'rb')
 
-            import numpy as np
+            self.imageType == 'la'
             #in Hz
             self.freqstep =float( np.fromfile(f, np.double,1) )
             self.points = int( np.fromfile(f, np.int32,1) )
@@ -120,10 +128,35 @@ class rfClass(object):
             self.deltaX = .2  #beamspacing in mm
             self.fovX = self.lines*self.deltaX
 
+        if dataType == 'multiFocus':
+
+            self.imageType == 'la'
+            self.fs =  40.0E6
+            #self.deltaX = 0.09
+            self.deltaX = 0.15
+            #read a frame to find out number of points and A lines
+            import os
+            self.nFrames = len( os.listdir(filename) )
+            tempFrame = np.load(filename + '/001.npy')
+            self.deltaY = self.soundSpeed/(2*self.fs)*10**3
+            self.fovX = self.deltaX*(tempFrame.shape[1] - 1)
+            self.fovY = self.deltaY*(tempFrame.shape[0] -1 )
+            self.points = tempFrame.shape[0]
+            self.lines = tempFrame.shape[1]
+       
+        if self.imageType == 'ps':
+            rPos = self.deltaY*np.arange(self.points)
+            thetaPos = self.deltaX*np.arange(-self.lines//2,-self.lines//2 + self.lines)
+
+            THETA, R = np.meshgrid(thetaPos, rPos)
+
+            ##for plotting
+            self.X = R*np.sin(THETA)
+            self.Y = R*np.cos(THETA)
         
         self.roiX = [0, self.lines-1]
         self.roiY = [0, self.points - 1]
-
+            
     def __iter__(self):
         self.iterIndex = 0
         return self
@@ -149,7 +182,7 @@ class rfClass(object):
         sampling frequencies are achieved through zero-padding.'''
 
         if self.dataType == 'ei':
-            import os, numpy
+            import os, numpy as np
             startdir = os.getcwd()
             os.chdir(self.fname)
 
@@ -161,12 +194,11 @@ class rfClass(object):
             metaData.close()
             points = len( range( metaList[3]/2, metaList[2] + metaList[3]/2 ) )
             aLines = metaList[1]
-            from numpy import zeros, fromfile
-            self.data = zeros( (points, aLines) )
+            self.data = np.zeros( (points, aLines) )
             readThisMany = (metaList[2]+ metaList[3]/2)*metaList[1]
 
             tempIn = open(str(frameNo), 'r')
-            frame = fromfile(tempIn,  numpy.int16, readThisMany)
+            frame = fromfile(tempIn,  np.int16, readThisMany)
             frame = frame.reshape( ( metaList[2]+ metaList[3]/2, metaList[1] )  , order = 'F' )
             self.data[:,:] = frame[metaList[3]/2:metaList[3]/2 + metaList[2], :].copy('C')
 
@@ -179,15 +211,14 @@ class rfClass(object):
 
         if self.dataType == 'rf':
             #Read in the header, then read in up to one less frame than necessary
-            import numpy
             dataFile = open(self.fname, 'r')
-            header = numpy.fromfile(dataFile, numpy.int32, 19)
+            header = np.fromfile(dataFile, np.int32, 19)
             if frameNo == 0:
-                temp = numpy.fromfile( dataFile, numpy.int16, self.points*self.lines)
+                temp = np.fromfile( dataFile, np.int16, self.points*self.lines)
                 self.data = temp.reshape( (self.points, self.lines),order='F')
             else:
                 dataFile.seek( 2*self.points*self.lines*(frameNo-1), 1)
-                temp = numpy.fromfile( dataFile, numpy.int16, self.points*self.lines)
+                temp = np.fromfile( dataFile, np.int16, self.points*self.lines)
                 self.data = temp.reshape( (self.points, self.lines), order='F')
 
 
@@ -231,7 +262,6 @@ class rfClass(object):
 
             f = open(self.fname, 'rb')
 
-            import numpy as np
             #in Hz
             self.freqstep =float( np.fromfile(f, np.double,1) )
             tmpPoints = int( np.fromfile(f, np.int32,1) )
@@ -263,33 +293,44 @@ class rfClass(object):
             self.deltaY = 1540. / (2*self.fs)*10**3
             self.fovY = self.deltaY*self.points
 
+        if self.dataType == 'multiFocus':
+            self.data = np.load(self.fname + '/' + str(frameNo + 1).zfill(3) + '.npy')
 
     def SaveBModeImage(self, fname, image = 0, itkFileName = None, noPng = False):
 
-        """Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
-        frames from a data set."""
+        """Create a B-mode image, display it, and save it as a Png. The data can also be saved in Itk format."""
 
         from scipy.signal import hilbert
-        from numpy import log10,arange
+        import numpy as np
         import matplotlib.pyplot as plt
         import matplotlib.cm as cm
 
         self.ReadFrame(image)
-        bMode = log10(abs(hilbert(self.data, axis = 0)))
+        bMode = np.log10(abs(hilbert(self.data, axis = 0)))
         bMode = bMode - bMode.max()
         bMode[ bMode < -3] = -3
         #import matplotlib and create plot
         if not noPng: 
             fig = plt.figure()
             ax = fig.add_subplot(1,1,1)
-            ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
-            ax.set_xlabel('Width (mm) ' )
-            ax.set_ylabel('Depth (mm) ' )
-            ax.set_xticks( arange(0, self.fovX, 10) )
-            ax.set_yticks( arange(0, self.fovY, 10) )
-            plt.savefig(fname + '.png')
-            plt.close()
+            
+            if self.imageType == 'la':
+                ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+                ax.set_xlabel('Width (mm) ' )
+                ax.set_ylabel('Depth (mm) ' )
+                ax.set_xticks( np.arange(0, self.fovX, 10) )
+                ax.set_yticks( np.arange(0, self.fovY, 10) )
+                plt.savefig(fname + '.png')
+                plt.close()
 
+            if self.imageType == 'ps':
+
+                ax.pcolormesh(self.X,self.Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
+                ax.set_axis_bgcolor("k")
+                plt.ylim(plt.ylim()[::-1])
+                plt.savefig(fname + '.png')
+                plt.close()
+            
         if itkFileName:
 
             import SimpleITK as sitk 
@@ -304,33 +345,37 @@ class rfClass(object):
             writer.SetFileName(itkFileName)
             
             writer.Execute(itkIm)
-
-    def DisplayBmodeImage(self, frameNo = 0, showFig = True):
+    
+    def DisplayBmodeImage(self, frameNo = 0):
         """Create a B-mode image and immediately display it.  This is useful for interactive viewing of particular
         frames from a data set."""
 
-        rfClass.bModeImageCount +=1
         self.ReadFrame(frameNo)
         temp = self.data
 
-
+        import numpy as np
         #import signal processing modules and generate Numpy array
         from scipy.signal import hilbert
-        from numpy import log10
-        bMode = log10(abs(hilbert(temp, axis = 0)))
+        bMode = np.log10(abs(hilbert(temp, axis = 0)))
         bMode = bMode - bMode.max()
 
         #import matplotlib and create plot
         import matplotlib.pyplot as plt
         import matplotlib.cm as cm
         fig = plt.figure()
-        fig.canvas.set_window_title("B-mode image " + str(rfClass.bModeImageCount) )
+        fig.canvas.set_window_title("B-mode image " )
         ax = fig.add_subplot(1,1,1)
-        ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
+        if self.imageType == 'la':
+            ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
 
-        if showFig:
-            plt.show()
+        if self.imageType == 'ps':
 
+            ax.pcolormesh(X,Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
+            ax.set_axis_bgcolor("k")
+            plt.ylim(plt.ylim()[::-1])
+        
+        plt.show()
+    
     def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
         '''Input:
            paramImage: The image to place within the B-mode image
@@ -338,16 +383,14 @@ class rfClass(object):
                         [row, column]
            spacing:  The number of B-mode pixels separating paramImage's pixels
                         [rows, columns]
-           colormap:  The colormap of the parametric image
+           colormap:  The colormap of the parametric image'''
 
-         '''
-       
-        import numpy 
-        from numpy import arange,zeros
+        
+        import numpy as np 
         from scipy import interpolate
 
         if not inPixels:
-            origin = numpy.array(origin); spacing = numpy.array(spacing)
+            origin = np.array(origin); spacing = np.array(spacing)
             
             origin[0] /= self.deltaY
             spacing[0] /= self.deltaY
@@ -390,14 +433,14 @@ class rfClass(object):
 
 
 
-        '''Convert array containing param values to RGBALpha array'''
+        #Convert array containing param values to RGBALpha array
         from matplotlib import cm
 
         palette = cm.ScalarMappable()
         palette.set_cmap(colormap)
         tempIm = palette.to_rgba(paramImageUp)
 
-        '''Create B-mode image'''
+        #Create B-mode image
         self.ReadFrame(frameNo)
         from scipy.signal import hilbert
         from numpy import log10
@@ -410,51 +453,84 @@ class rfClass(object):
 
         bMode[origin[0]:origin[0] + tempIm.shape[0],origin[1]:origin[1] + tempIm.shape[1], :] = tempIm
 
-
         return bMode
 
 
     def SetRoiFixedSize(self, windowX = 4, windowY = 4):
-        '''The Roi size here is given in mm'''
+        #The Roi size here is given in mm.  For a phased array probe 4 mm is the
+        #arclength in the middle of the ROI.
 
-
-        from matplotlib import pyplot
+        from matplotlib import pyplot as plt
         from scipy.signal import hilbert
-        from numpy import log10, arange
+        import numpy as np
 
-        import types
-        if type(self.data) == types.NoneType:
-            self.ReadFrame()
+        self.ReadFrame()
         yExtent = self.deltaY*self.points
         xExtent = self.deltaX*self.lines
-        bmode = log10(abs(hilbert(self.data, axis=0) ) )
+        bmode = np.log10(abs(hilbert(self.data, axis=0) ) )
         bmode = bmode - bmode.max()
-        pyplot.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
-        x= pyplot.ginput()
-        pyplot.close()
-        #Compute the size of the analysis window in points and A-lines
-        self.windowY = int(windowY/self.deltaY)
-        self.windowX = int(windowX/self.deltaX)
+        
+        #Compute the center of the bounding box and its size in pixels
+        if self.imageType == 'la':        
+            plt.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+            x= plt.ginput()
+            plt.close()
+            boxX = int( x[0][0]/self.deltaX )
+            boxY = int( x[0][1]/self.deltaY )
+            windowY = int(windowY/self.deltaY)
+            windowX = int(windowX/self.deltaX)
+            
+            xLow = boxX - self.windowX/2
+            if xLow < 0:
+                xLow = 0
+            xHigh = xLow + self.windowX
+            if xHigh > self.lines:
+                xHigh = self.lines
+            xLow = xHigh - self.windowX
 
-        #Compute the center of the bounding box in pixels
-        boxX = int( x[0][0]/self.deltaX )
-        boxY = int( x[0][1]/self.deltaY )
+            yLow = boxY - self.windowY/2
+            if yLow < 0:
+                yLow = 0
+            yHigh = yLow + self.windowY
+            if yHigh > self.points+1:
+                yHigh = self.points+1
+            yLow = yHigh - self.windowY
+       
+        #Compute center of bounding box and its size, phased array probe
+        if self.imageType == 'ps':
+            fig = plt.figure()
+            ax = fig.add_subplot(1,1,1)
+            ax.pcolormesh(self.X, self.Y, bmode, cmap = 'gray', vmin = -3, vmax = 0)
+            ax.set_axis_bgcolor("k")
+            plt.ylim(plt.ylim()[::-1])
+            x = plt.ginput()
+            plt.close() 
+            
+            centerR = np.sqrt(x[0][0]**2 + x[0][1]**2)
+            centerRPixels = centerR//self.deltaY
+            extentRPixels = int(windowY/self.deltaY)
+            
+            centerTheta = np.arctan( x[0][0]/x[0][1] )
+            centerThetaPixels = (self.fovX/2 + centerTheta)//self.deltaX
+            extentTheta = windowX/centerR
+            extentThetaPixels = int(extentTheta/self.deltaX) 
+            
+            xLow = centerThetaPixels - extentThetaPixels//2
+            if xLow < 0:
+                xLow = 0
+            xHigh = xLow + extentThetaPixels
+            if xHigh > self.lines:
+                xHigh = self.lines
+            xLow = xHigh - extentThetaPixels
 
-        xLow = boxX - self.windowX/2
-        if xLow < 0:
-            xLow = 0
-        xHigh = xLow + self.windowX
-        if xHigh > self.lines:
-            xHigh = self.lines
-        xLow = xHigh - self.windowX
-
-        yLow = boxY - self.windowY/2
-        if yLow < 0:
-            yLow = 0
-        yHigh = yLow + self.windowY
-        if yHigh > self.points+1:
-            yHigh = self.points+1
-        yLow = yHigh - self.windowY
+            yLow = centerRPixels - extentRPixels//2
+            if yLow < 0:
+                yLow = 0
+            yHigh = yLow + extentRPixels
+            
+            if yHigh > self.points:
+                yHigh = self.points
+            yLow = yHigh - extentRPixels
 
         self.roiX = [xLow, xHigh]
         self.roiY = [yLow, yHigh]
@@ -481,82 +557,35 @@ class rfClass(object):
             yHigh = bmode.mask.shape[0] - lineThickY
         bmode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
 
-
-        pyplot.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
-        pyplot.xticks( arange(0,self.fovX, 10) )
-        pyplot.yticks( arange(0,self.fovY, 10) )
-        pyplot.xlabel('Width (mm)')
-        pyplot.ylabel('Depth (mm)')
-        pyplot.show()
+        fig = plt.figure()
+        ax = fig.add_subplot(1,1,1)
+        
+        if self.imageType == 'la':
+            plt.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
+            plt.xticks( arange(0,self.fovX, 10) )
+            plt.yticks( arange(0,self.fovY, 10) )
+            plt.xlabel('Width (mm)')
+            plt.ylabel('Depth (mm)')
+            plt.show()
+        
+        if self.imageType == 'ps':
+            fig = plt.figure()
+            ax = fig.add_subplot(1,1,1)
+            ax.pcolormesh(self.X, self.Y,bmode, cmap = palette, vmin = -3, vmax = 0)
+            ax.set_axis_bgcolor("k")
+            #plt.xticks( np.arange(0,self.fovX, 10) )
+            #plt.yticks( np.arange(0,self.fovY, 10) )
+            plt.xlabel('Width (mm)')
+            plt.ylabel('Depth (mm)')
+            plt.ylim(plt.ylim()[::-1])
+            plt.show()
     
-
-    def SetRoiBoxSelect(self):
-        """
-        Do a mouseclick somewhere, move the mouse to some destination, release
-        the button.  This class gives click- and release-events and also draws
-        a line or a box from the click-point to the actual mouseposition
-        (within the same axes) until the button is released.  Within the
-        method 'self.ignore()' it is checked wether the button from eventpress
-        and eventrelease are the same.
-
-        """
-        #Check that a Data set has been loaded
-        if self.fname == None:
-            return
-
-        from matplotlib.widgets import RectangleSelector
-        import numpy as np
-        import matplotlib.pyplot as plt
-        current_ax = plt.subplot(111)               # make a new plotingrangej
-
-
-        def on_select(eclick, erelease):
-            self.roiX = [0,0]
-            self.roiY = [0,0]
-            
-            self.roiX[0]   = int(erelease.xdata/self.deltaX)
-            self.roiX[1]   = int(eclick.xdata/self.deltaX)
-            self.roiX.sort()
-
-            self.roiY[0]   = int(eclick.ydata/self.deltaY)
-            self.roiY[1]   = int(erelease.ydata/self.deltaY)
-            self.roiY.sort()
-
-        # drawtype is 'box' or 'line' or 'none'
-        rectprops = dict(facecolor='red', edgecolor = 'red',
-                 alpha=0.5, fill=False)
-        rs = RectangleSelector(current_ax, on_select,
-                                               drawtype='box', useblit=True,
-                                               button=[1,3], # don't use middle button
-                                               minspanx=0, minspany=0,
-                                               spancoords='data', 
-                                               rectprops = rectprops)
-
-        #could be image sequence or just a 2-D image
-        import types
-        if type(self.data) == types.NoneType:
-            self.ReadFrame(0)
-        temp = self.data
-
-
-        from scipy.signal import hilbert
-        from numpy import log10
-        bMode = log10(abs(hilbert(temp, axis = 0)))
-        bMode = bMode - bMode.max()
-        bMode[bMode < -3] = -3
-
-        #import matplotlib and create plot
-        import matplotlib.cm as cm
-
-        plt.imshow(bMode, cmap = cm.gray,  extent = [0, self.fovX,  self.fovY, 0])
-        plt.show()
 
     def CreateRoiArray(self):
         #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
         self.ReadFrame(0)
         temp = self.data
-
 
         #Create masked array with B-mode data, mask entries for box
         from scipy.signal import hilbert
@@ -611,4 +640,3 @@ class rfClass(object):
         im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
         plt.savefig(fname)
         plt.close()
-

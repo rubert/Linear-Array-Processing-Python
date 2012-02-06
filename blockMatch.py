@@ -212,6 +212,9 @@ class blockMatchClass(rfClass):
         self.TrackNonSeeds()
         #self.DropOutCorrection()
         self.DisplacementToStrain()
+        
+        if vMax:
+            self.strain[self.strain> vMax] = vMax
 
         #take the strain image and create a scan-converted strain image.
         startY =self.windowCenterY[self.halfLsq]
@@ -259,8 +262,6 @@ class blockMatchClass(rfClass):
 
        
         ##Write image to PNG
-        if vMax:
-            self.strain[self.strain> vMax] = vMax
         
         self.strainRGB = self.CreateParametricImage(self.strain,[startY, startX], [stepY, stepX], colormap = 'gray' )
         self.dpYRGB = self.CreateParametricImage(self.dpY,[startYdp, startX], [stepY, stepX] )
