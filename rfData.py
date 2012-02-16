@@ -60,8 +60,9 @@ class rfClass(object):
             if hInfo[4] == 'phased sector':
                 self.imageType = 'ps'
                 self.deltaX = hInfo[5]
+                self.aLineSpacing = hInfo[6]
             else:
-                self.imageType == 'la'
+                self.imageType = 'la'
                 self.deltaX = (1./hInfo[2])*10.
             #read a frame to find out number of points and A lines
             tempFrame = readrfd.readrfd(filename, 1)
@@ -151,7 +152,7 @@ class rfClass(object):
             THETA, R = np.meshgrid(thetaPos, rPos)
 
             ##for plotting
-            self.X = R*np.sin(THETA)
+            self.X = R*np.sin(THETA) + self.aLineSpacing*np.arange(-self.lines//2,-self.lines//2 + self.lines)
             self.Y = R*np.cos(THETA)
         
         self.roiX = [0, self.lines-1]
@@ -412,26 +413,23 @@ class rfClass(object):
         bModeSizeY = spacing[0]*(paramImage.shape[0] - 1) + 1
         bModeSizeX = spacing[1]*(paramImage.shape[1] - 1) + 1
 
-        paramImageUpInY = zeros( (bModeSizeY, paramImage.shape[1] ) )
-        paramImageUp = zeros( (bModeSizeY, bModeSizeX) )
+        paramImageUpInY = np.zeros( (bModeSizeY, paramImage.shape[1] ) )
+        paramImageUp = np.zeros( (bModeSizeY, bModeSizeX) )
 
         #Upsample strain image to same spacing as B-mode image.
-        paramRfYIndexes = arange(origin[0], origin[0] + spacing[0]*paramImage.shape[0], spacing[0] )
-        paramRfYIndexesNew = arange(origin[0], origin[0] + spacing[0]*(paramImage.shape[0]-1) + 1 )
-        paramRfXIndexes = arange(origin[1], origin[1] + spacing[1]*paramImage.shape[1], spacing[1] )
-        paramRfXIndexesNew = arange(origin[1], origin[1] + spacing[1]*(paramImage.shape[1]-1) + 1 )
+        paramRfYIndexes = np.arange(origin[0], origin[0] + spacing[0]*paramImage.shape[0], spacing[0] )
+        paramRfYIndexesNew = np.arange(origin[0], origin[0] + spacing[0]*(paramImage.shape[0]-1) + 1 )
+        paramRfXIndexes = np.arange(origin[1], origin[1] + spacing[1]*paramImage.shape[1], spacing[1] )
+        paramRfXIndexesNew = np.arange(origin[1], origin[1] + spacing[1]*(paramImage.shape[1]-1) + 1 )
 
         #use old image to interpolate
         for x in range(paramImage.shape[1]):
             interp = interpolate.interp1d(paramRfYIndexes, paramImage[:,x] )
             paramImageUpInY[:, x] = interp(paramRfYIndexesNew )
 
-
         for y in range(paramImageUp.shape[0]):
             interp = interpolate.interp1d(paramRfXIndexes, paramImageUpInY[y,:] )
             paramImageUp[y, :] = interp( paramRfXIndexesNew )
-
-
 
         #Convert array containing param values to RGBALpha array
         from matplotlib import cm
@@ -480,21 +478,21 @@ class rfClass(object):
             windowY = int(windowY/self.deltaY)
             windowX = int(windowX/self.deltaX)
             
-            xLow = boxX - self.windowX/2
+            xLow = boxX - windowX/2
             if xLow < 0:
                 xLow = 0
-            xHigh = xLow + self.windowX
+            xHigh = xLow + windowX
             if xHigh > self.lines:
                 xHigh = self.lines
-            xLow = xHigh - self.windowX
+            xLow = xHigh - windowX
 
-            yLow = boxY - self.windowY/2
+            yLow = boxY - windowY/2
             if yLow < 0:
                 yLow = 0
-            yHigh = yLow + self.windowY
+            yHigh = yLow + windowY
             if yHigh > self.points+1:
                 yHigh = self.points+1
-            yLow = yHigh - self.windowY
+            yLow = yHigh - windowY
        
         #Compute center of bounding box and its size, phased array probe
         if self.imageType == 'ps':
@@ -505,25 +503,33 @@ class rfClass(object):
             plt.ylim(plt.ylim()[::-1])
             x = plt.ginput()
             plt.close() 
+           
+            #pain in the ass
+            #Find X-coordinates of beamlines at depth Y
+            xPos = x[0][0]
+            depth = x[0][1]
+
+            angles = self.deltaX*np.arange(-self.lines//2,-self.lines//2 + self.lines)
+            startX = self.aLineSpacing*np.arange(-self.lines//2,-self.lines//2 + self.lines)
+            beamLineXPos = startX + np.sin(angles)*depth
             
-            centerR = np.sqrt(x[0][0]**2 + x[0][1]**2)
-            centerRPixels = centerR//self.deltaY
+            closestLine = abs(beamLineXPos - xPos).argmin()
+            closestPoint = abs(np.cos(angles[closestLine])*np.arange(self.points)*self.deltaY  - depth).argmin()
+
             extentRPixels = int(windowY/self.deltaY)
             
-            centerTheta = np.arctan( x[0][0]/x[0][1] )
-            centerThetaPixels = (self.fovX/2 + centerTheta)//self.deltaX
-            extentTheta = windowX/centerR
+            extentTheta = 1.25*windowX/np.sqrt(xPos**2 + depth**2)
             extentThetaPixels = int(extentTheta/self.deltaX) 
             
-            xLow = centerThetaPixels - extentThetaPixels//2
+            xLow = closestLine - extentThetaPixels//2
             if xLow < 0:
                 xLow = 0
-            xHigh = xLow + extentThetaPixels
+            xHigh = closestLine + extentThetaPixels
             if xHigh > self.lines:
                 xHigh = self.lines
             xLow = xHigh - extentThetaPixels
 
-            yLow = centerRPixels - extentRPixels//2
+            yLow = closestPoint - extentRPixels//2
             if yLow < 0:
                 yLow = 0
             yHigh = yLow + extentRPixels
@@ -562,15 +568,13 @@ class rfClass(object):
         
         if self.imageType == 'la':
             plt.imshow(bmode, cmap = palette, extent = [0, xExtent, yExtent, 0 ],vmin = -3, vmax = 0)
-            plt.xticks( arange(0,self.fovX, 10) )
-            plt.yticks( arange(0,self.fovY, 10) )
+            plt.xticks( np.arange(0,self.fovX, 10) )
+            plt.yticks( np.arange(0,self.fovY, 10) )
             plt.xlabel('Width (mm)')
             plt.ylabel('Depth (mm)')
             plt.show()
         
         if self.imageType == 'ps':
-            fig = plt.figure()
-            ax = fig.add_subplot(1,1,1)
             ax.pcolormesh(self.X, self.Y,bmode, cmap = palette, vmin = -3, vmax = 0)
             ax.set_axis_bgcolor("k")
             #plt.xticks( np.arange(0,self.fovX, 10) )
@@ -579,8 +583,73 @@ class rfClass(object):
             plt.ylabel('Depth (mm)')
             plt.ylim(plt.ylim()[::-1])
             plt.show()
-    
+   
 
+    def SetRoiBoxSelect(self):
+        """
+        Do a mouseclick somewhere, move the mouse to some destination, release
+        the button. This class gives click- and release-events and also draws
+        a line or a box from the click-point to the actual mouseposition
+        (within the same axes) until the button is released. Within the
+        method 'self.ignore()' it is checked wether the button from eventpress
+        and eventrelease are the same.
+
+        """
+        #Check that a Data set has been loaded
+        if self.fname == None:
+            return
+
+        if self.imageType != 'la':
+            print 'Function only valid for linear array probes. '
+            return
+
+        from matplotlib.widgets import RectangleSelector
+        import numpy as np
+        import matplotlib.pyplot as plt
+        current_ax = plt.subplot(111) # make a new plotingrangej
+
+        def on_select(eclick, erelease):
+            self.roiX = [0,0]
+            self.roiY = [0,0]
+
+            self.roiX[0] = int(erelease.xdata/self.deltaX)
+            self.roiX[1] = int(eclick.xdata/self.deltaX)
+            self.roiX.sort()
+
+            self.roiY[0] = int(eclick.ydata/self.deltaY)
+            self.roiY[1] = int(erelease.ydata/self.deltaY)
+            self.roiY.sort()
+
+        # drawtype is 'box' or 'line' or 'none'
+        rectprops = dict(facecolor='red', edgecolor = 'red',
+         alpha=0.5, fill=False)
+        
+        rs = RectangleSelector(current_ax, on_select,
+                                       drawtype='box', useblit=True,
+                                       button=[1,3], # don't use middle button
+                                       minspanx=0, minspany=0,
+                                       spancoords='data',
+                                       rectprops = rectprops)
+
+        #could be image sequence or just a 2-D image
+        import types
+        if type(self.data) == types.NoneType:
+            self.ReadFrame(0)
+            temp = self.data
+
+
+        from scipy.signal import hilbert
+        from numpy import log10
+        bMode = log10(abs(hilbert(temp, axis = 0)))
+        bMode = bMode - bMode.max()
+        bMode[bMode < -3] = -3
+
+        #import matplotlib and create plot
+        import matplotlib.cm as cm
+
+        plt.imshow(bMode, cmap = cm.gray, extent = [0, self.fovX, self.fovY, 0])
+        plt.show()
+        
     def CreateRoiArray(self):
         #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
@@ -608,10 +677,12 @@ class rfClass(object):
         lineThickY = 10
         if yLow < lineThickY:
             yLow = lineThickY
+        
         bMode.mask[yLow-lineThickY:yLow, xLow:xHigh] = True
 
         if yHigh > bMode.mask.shape[0] - lineThickY:
             yHigh = bMode.mask.shape[0] - lineThickY
+        
         bMode.mask[yHigh-lineThickY:yHigh, xLow:xHigh] = True
 
         return bMode
@@ -630,7 +701,7 @@ class rfClass(object):
 
 
     def SaveRoiImage(self, fname):
-        bMode = self.createRoiArray()
+        bMode = self.CreateRoiArray()
         #import matplotlib and create plot
         import matplotlib.pyplot as plt
         import matplotlib.cm as cm
