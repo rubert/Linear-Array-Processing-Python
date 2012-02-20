@@ -455,8 +455,8 @@ class rfClass(object):
 
 
     def SetRoiFixedSize(self, windowX = 4, windowY = 4):
-        #The Roi size here is given in mm.  For a phased array probe 4 mm is the
-        #arclength in the middle of the ROI.
+        #The Roi size here is given in mm.  For a phased array probe windowX is the
+        #number of A-lines in an ROI.
 
         from matplotlib import pyplot as plt
         from scipy.signal import hilbert
@@ -518,16 +518,13 @@ class rfClass(object):
 
             extentRPixels = int(windowY/self.deltaY)
             
-            extentTheta = 1.25*windowX/np.sqrt(xPos**2 + depth**2)
-            extentThetaPixels = int(extentTheta/self.deltaX) 
-            
-            xLow = closestLine - extentThetaPixels//2
+            xLow = closestLine - windowX//2
             if xLow < 0:
                 xLow = 0
-            xHigh = closestLine + extentThetaPixels
+            xHigh = closestLine + windowX//2
             if xHigh > self.lines:
                 xHigh = self.lines
-            xLow = xHigh - extentThetaPixels
+            xLow = xHigh - windowX
 
             yLow = closestPoint - extentRPixels//2
             if yLow < 0:
@@ -694,9 +691,21 @@ class rfClass(object):
         import matplotlib.cm as cm
         palette = cm.gray
         palette.set_bad('r')
+        
+        fig = plt.figure()
+        ax = fig.add_subplot(1,1,1)
 
-        im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
-        plt.show()
+        if self.imageType == 'ps':
+            ax.pcolormesh(self.X, self.Y,bMode, cmap = palette, vmin = -3, vmax = 0)
+            ax.set_axis_bgcolor("k")
+            #plt.xticks( np.arange(0,self.fovX, 10) )
+            #plt.yticks( np.arange(0,self.fovY, 10) )
+            plt.xlabel('Width (mm)')
+            plt.ylabel('Depth (mm)')
+            plt.ylim(plt.ylim()[::-1])
+        else:
+            im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
+            plt.show()
 
 
 
@@ -708,6 +717,19 @@ class rfClass(object):
         palette = cm.gray
         palette.set_bad('r')
 
-        im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
+        fig = plt.figure()
+        ax = fig.add_subplot(1,1,1)
+       
+        if self.imageType == 'ps':
+            ax.pcolormesh(self.X, self.Y,bMode, cmap = palette, vmin = -3, vmax = 0)
+            ax.set_axis_bgcolor("k")
+            #plt.xticks( np.arange(0,self.fovX, 10) )
+            #plt.yticks( np.arange(0,self.fovY, 10) )
+            plt.xlabel('Width (mm)')
+            plt.ylabel('Depth (mm)')
+            plt.ylim(plt.ylim()[::-1])
+        else:
+            im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
+                    
         plt.savefig(fname)
         plt.close()
