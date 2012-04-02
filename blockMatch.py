@@ -279,6 +279,25 @@ class blockMatchClass(rfClass):
             pyplot.savefig(pngFileName)
             pyplot.close()
 
+    def RescaleRgbStrainImage(self, vMax):
+        """This function rescales my scan-converted RGB strain image"""
+        if self.strain is None:
+            print 'Error, no strain image has been calculated yet.'
+            return
+
+        
+        startY =self.windowCenterY[self.halfLsq]
+        startYdp = self.windowCenterY[0]
+        startX =self.windowCenterX[0]
+        stepY =self.stepY
+        stepX =1
+      
+        
+        tmpStrain = self.strain.copy()
+        locs = tmpStrain > vMax
+        tmpStrain[locs] = vMax
+        self.strainRGB = self.CreateParametricImage(tmpStrain,[startY, startX], [stepY, stepX], colormap = 'gray' )
+
     def SubSampleFit(self,f):
         """This function takes a 3 by 1 array assumes a quadratic function and finds the maximum as if the function were continuous.
 The assumption is that f(x) = ax^2 + bx + c"""
