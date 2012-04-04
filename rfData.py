@@ -402,22 +402,10 @@ class rfClass(object):
         
         plt.show()
     
-    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
-        '''Input:
-           paramImage: The image to place within the B-mode image
-           origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
-                        [row, column]
-           spacing:  The number of B-mode pixels separating paramImage's pixels
-                        [rows, columns]
-           colormap:  The colormap of the parametric image'''
-
-        
-=======
    
     def ParametricImageResolutionToBmodeResolution(self, paramImage, origin, spacing, inPixels = True, vmin= None, vmax
     = None):
         import numpy as np 
->>>>>>> ff47221521632f6d5effdbc4eb8e0235bcf848df
         from scipy import interpolate
 
         if not inPixels:
@@ -473,7 +461,7 @@ class rfClass(object):
            colormap:  The colormap of the parametric image'''
 
          
-        self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels)
+        self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels, vmin, vmax)
  
         #Convert array containing param values to RGBALpha array
         from matplotlib import cm
