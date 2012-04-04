@@ -1,3 +1,7 @@
+import numpy as np
+from matplotlib import pyplot as plt
+from scipy.signal import hilbert
+
 class rfClass(object):
 
     def __init__(self, filename, dataType, centerFreqSimulation = 5.0, sigmaSimulation = 1.0, fsSimulation = 40.0):
@@ -11,7 +15,6 @@ class rfClass(object):
                         multiSim, file format for simulated data with linear array transducers, multiple frames
                          '''
         
-        import numpy as np
 
         if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' or dataType == 'multiSim'
         or dataType == 'multiFocus'):
@@ -229,7 +232,6 @@ class rfClass(object):
 
             f = open(self.fname, 'rb')
 
-            import numpy as np
             #in Hz
             self.freqstep =float( np.fromfile(f, np.double,1) )
             tmpPoints = int( np.fromfile(f, np.int32,1) )
@@ -301,9 +303,6 @@ class rfClass(object):
 
         """Create a B-mode image, display it, and save it as a Png. The data can also be saved in Itk format."""
 
-        from scipy.signal import hilbert
-        import numpy as np
-        import matplotlib.pyplot as plt
         import matplotlib.cm as cm
 
         self.ReadFrame(image)
@@ -354,14 +353,11 @@ class rfClass(object):
         self.ReadFrame(frameNo)
         temp = self.data
 
-        import numpy as np
         #import signal processing modules and generate Numpy array
-        from scipy.signal import hilbert
         bMode = np.log10(abs(hilbert(temp, axis = 0)))
         bMode = bMode - bMode.max()
 
         #import matplotlib and create plot
-        import matplotlib.pyplot as plt
         import matplotlib.cm as cm
         fig = plt.figure()
         fig.canvas.set_window_title("B-mode image " )
@@ -371,7 +367,7 @@ class rfClass(object):
 
         if self.imageType == 'ps':
 
-            ax.pcolormesh(X,Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
+            ax.pcolormesh(self.X,self.Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
             ax.set_axis_bgcolor("k")
             plt.ylim(plt.ylim()[::-1])
         
@@ -387,7 +383,6 @@ class rfClass(object):
            colormap:  The colormap of the parametric image'''
 
         
-        import numpy as np 
         from scipy import interpolate
 
         if not inPixels:
@@ -458,9 +453,6 @@ class rfClass(object):
         #The Roi size here is given in mm.  For a phased array probe windowX is the
         #number of A-lines in an ROI.
 
-        from matplotlib import pyplot as plt
-        from scipy.signal import hilbert
-        import numpy as np
 
         self.ReadFrame()
         yExtent = self.deltaY*self.points
@@ -601,8 +593,6 @@ class rfClass(object):
             return
 
         from matplotlib.widgets import RectangleSelector
-        import numpy as np
-        import matplotlib.pyplot as plt
         current_ax = plt.subplot(111) # make a new plotingrangej
 
         def on_select(eclick, erelease):
@@ -687,7 +677,6 @@ class rfClass(object):
     def ShowRoiImage(self):
         bMode = self.CreateRoiArray()
         #import matplotlib and create plot
-        import matplotlib.pyplot as plt
         import matplotlib.cm as cm
         palette = cm.gray
         palette.set_bad('r')
@@ -712,7 +701,6 @@ class rfClass(object):
     def SaveRoiImage(self, fname):
         bMode = self.CreateRoiArray()
         #import matplotlib and create plot
-        import matplotlib.pyplot as plt
         import matplotlib.cm as cm
         palette = cm.gray
         palette.set_bad('r')

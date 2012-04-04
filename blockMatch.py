@@ -4,6 +4,8 @@ import heapq
 from rfData import rfClass
 import cv
 import numpy as np
+from matplotlib import pyplot as plt
+from scipy.signal import hilbert
 
 class UniquePriorityQueue(PriorityQueue):
     def _init(self, maxsize):
@@ -78,15 +80,21 @@ class blockMatchClass(rfClass):
         self.halfY = self.windowY//2
 
         #lateral block size
-        self.windowX = int(self.windowXmm/self.deltaX)
+        if self.imageType == 'la':
+            self.windowX = int(self.windowXmm/self.deltaX)
+        else:
+            self.windowX = 21
         if not self.windowX%2:
             self.windowX +=1
         self.halfX = self.windowX//2
 
 
         #search range
+        if self.imageType == 'la':
+            self.rangeX = int(self.rangeXmm/self.deltaX)
+        else:
+            self.rangeX = 10
         self.rangeY = int(self.rangeYmm/self.deltaY)
-        self.rangeX = int(self.rangeXmm/self.deltaX)
         self.smallRangeY = 3
         self.smallRangeX = 2
 
@@ -102,11 +110,10 @@ class blockMatchClass(rfClass):
         self.startX = 0 + self.halfX + self.rangeX + self.smallRangeX
         self.stopX = self.lines - self.halfX - self.smallRangeX - self.rangeX
         
-        
         ###Allow for selection of an ROI####
-        if selectRoi:
+        if self.imageType == 'la' and selectRoi:
             self.SetRoiBoxSelect()
-            
+                
             if self.roiX[0] > self.startX:
                 self.startX = self.roiX[0]
 
@@ -124,7 +131,7 @@ class blockMatchClass(rfClass):
         self.roiY = [self.startY, self.stopY]
         self.roiX = [self.startX, self.stopX]
 
-        if selectRoi:
+        if selectRoi and self.imageType == 'la':
             self.ShowRoiImage()
 
     ###create arrays containing window centers in rf data coordinates
@@ -285,7 +292,6 @@ class blockMatchClass(rfClass):
             print 'Error, no strain image has been calculated yet.'
             return
 
-        
         startY =self.windowCenterY[self.halfLsq]
         startYdp = self.windowCenterY[0]
         startX =self.windowCenterX[0]
@@ -298,6 +304,36 @@ class blockMatchClass(rfClass):
         tmpStrain[locs] = vMax
         self.strainRGB = self.CreateParametricImage(tmpStrain,[startY, startX], [stepY, stepX], colormap = 'gray' )
 
+    def DisplayScanConvertedStrainImage(self, vMax = .02):
+
+        bmode = np.log10(abs(hilbert(self.data) ) )
+        bmode -= bmode.max()
+
+        if self.imageType == 'la':
+            fig = plt.figure()
+            fig.canvas.set_window_title("B-mode image " )
+            ax = fig.add_subplot(1,1,1)
+            ax.imshow(self.strainRGB, extent = [0, self.fovX, self.fovY, 0] )
+            ax.show()
+        
+        if self.imageType == 'ps':
+
+            plt.pcolormesh(self.X,self.Y, bmode,hold = True, vmin = -3, vmax = 0, cmap = 'gray')
+            tmpX = np.zeros(self.strain.shape)
+            tmpY = np.zeros(self.strain.shape)
+            strainYrf = self.windowCenterY[self.halfLsq:-self.halfLsq]
+            for i in range(tmpX.shape[0]):
+                for j in range(tmpY.shape[1]):
+                    tmpX[i,j] = self.X[strainYrf[i], self.windowCenterX[j] ]
+                    tmpY[i,j] = self.Y[strainYrf[i], self.windowCenterX[j] ]
+           
+            print tmpX.shape
+            print tmpY.shape
+            plt.pcolormesh(tmpX,tmpY, self.strain, vmin = 0, vmax = vMax, cmap = 'gray')
+            plt.gca().set_axis_bgcolor("k")
+            plt.ylim(plt.ylim()[::-1])
+            plt.show() 
+    
     def SubSampleFit(self,f):
         """This function takes a 3 by 1 array assumes a quadratic function and finds the maximum as if the function were continuous.
 The assumption is that f(x) = ax^2 + bx + c"""
