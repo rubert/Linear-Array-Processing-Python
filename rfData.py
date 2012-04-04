@@ -461,7 +461,7 @@ class rfClass(object):
            colormap:  The colormap of the parametric image'''
 
          
-        self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels, vmin, vmax)
+        paramImageUp = self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels, vmin, vmax)
  
         #Convert array containing param values to RGBALpha array
         from matplotlib import cm
