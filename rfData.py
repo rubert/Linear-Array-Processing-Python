@@ -401,7 +401,6 @@ class rfClass(object):
             plt.ylim(plt.ylim()[::-1])
         
         plt.show()
-<<<<<<< HEAD
     
     def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
         '''Input:
