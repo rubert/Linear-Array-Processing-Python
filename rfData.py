@@ -14,7 +14,7 @@ class rfClass(object):
         import numpy as np
 
         if not( dataType == 'ei' or dataType == 'rfd' or dataType == 'rf' or dataType =='sim' or dataType == 'multiSim'
-        or dataType == 'multiFocus'):
+        or dataType == 'multiFocus', 'wobbler2D'):
             print 'Error.  Datatype must be ei,rfd,rf, sim, multiSim, or multiFocus '
             return
 
@@ -76,7 +76,7 @@ class rfClass(object):
 
         if dataType == 'rf':
             #The header is 19 32-bit integers
-            self.imageType == 'la'
+            self.imageType = 'la'
             dataFile = open(self.fname, 'r')
             header = np.fromfile(dataFile, np.int32, 19)
             self.header = header
@@ -88,6 +88,25 @@ class rfClass(object):
             self.fovX = self.lines*self.deltaX
             self.fovY = self.points*self.deltaY
             self.nFrames = header[1]
+        
+        if dataType == 'wobbler2D':
+            #The header is 19 32-bit integers
+
+            self.imageType = 'wobbler'
+            dataFile = open(self.fname, 'r')
+            header = np.fromfile(dataFile, np.int32, 19)
+            self.header = header
+            self.fs = header[15]
+            self.deltaY = self.soundSpeed/(2*self.fs)*10**3
+            self.points = header[3]
+            self.lines = header[2]
+            self.deltaX = 40./self.lines #parameter in header is broken, so assume a 40 mm FOV
+            self.fovX = self.lines*self.deltaX
+            self.fovY = self.points*self.deltaY
+            self.nFrames = header[1]
+
+            self.deltaTheta = np.pi/180*.410
+            self.R1 = 39.5
 
         if dataType == 'sim':
 
@@ -154,6 +173,15 @@ class rfClass(object):
             ##for plotting
             self.X = R*np.sin(THETA) + self.aLineSpacing*np.arange(-self.lines//2,-self.lines//2 + self.lines)
             self.Y = R*np.cos(THETA)
+       
+        if self.imageType == 'wobbler':
+            thetaPos = -self.lines/2*self.deltaTheta + np.arange(self.lines)*self.deltaTheta
+            rPos = self.R1 + np.arange(self.points)*self.deltaY
+            THETA, R = np.meshgrid(thetaPos, rPos)
+            
+            self.X = R*np.sin(THETA)
+            self.Y = R*np.cos(THETA)
+        
         
         self.roiX = [0, self.lines-1]
         self.roiY = [0, self.points - 1]
@@ -182,8 +210,9 @@ class rfClass(object):
         samplingFrequency. (Hz)  The simulated sampling frequency for a simulated data set.  Higher
         sampling frequencies are achieved through zero-padding.'''
 
+        import os,numpy as np
+
         if self.dataType == 'ei':
-            import os, numpy as np
             startdir = os.getcwd()
             os.chdir(self.fname)
 
@@ -210,7 +239,7 @@ class rfClass(object):
             import readrfd
             self.data = readrfd.readrfd(self.fname, frameNo + 1)
 
-        if self.dataType == 'rf':
+        if self.dataType == 'rf' or self.dataType == 'wobbler2D':
             #Read in the header, then read in up to one less frame than necessary
             dataFile = open(self.fname, 'r')
             header = np.fromfile(dataFile, np.int32, 19)
@@ -229,7 +258,6 @@ class rfClass(object):
 
             f = open(self.fname, 'rb')
 
-            import numpy as np
             #in Hz
             self.freqstep =float( np.fromfile(f, np.double,1) )
             tmpPoints = int( np.fromfile(f, np.int32,1) )
@@ -324,7 +352,7 @@ class rfClass(object):
                 plt.savefig(fname + '.png')
                 plt.close()
 
-            if self.imageType == 'ps':
+            if self.imageType == 'ps' or self.imageType == 'wobbler':
 
                 ax.pcolormesh(self.X,self.Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
                 ax.set_axis_bgcolor("k")
@@ -369,24 +397,16 @@ class rfClass(object):
         if self.imageType == 'la':
             ax.imshow(bMode, cmap = cm.gray, vmin = -3, vmax = 0, extent = [0, self.fovX,  self.fovY, 0])
 
-        if self.imageType == 'ps':
+        if self.imageType == 'ps' or self.imageType == 'wobbler':
 
-            ax.pcolormesh(X,Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
+            ax.pcolormesh(self.X,self.Y, bMode, vmin = -3, vmax = 0, cmap = cm.gray)
             ax.set_axis_bgcolor("k")
             plt.ylim(plt.ylim()[::-1])
         
         plt.show()
-    
-    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
-        '''Input:
-           paramImage: The image to place within the B-mode image
-           origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
-                        [row, column]
-           spacing:  The number of B-mode pixels separating paramImage's pixels
-                        [rows, columns]
-           colormap:  The colormap of the parametric image'''
-
-        
+   
+    def ParametricImageResolutionToBmodeResolution(self, paramImage, origin, spacing, inPixels = True, vmin= None, vmax
+    = None):
         import numpy as np 
         from scipy import interpolate
 
@@ -431,6 +451,20 @@ class rfClass(object):
             interp = interpolate.interp1d(paramRfXIndexes, paramImageUpInY[y,:] )
             paramImageUp[y, :] = interp( paramRfXIndexesNew )
 
+        return paramImageUp
+
+    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
+        '''Input:
+           paramImage: The image to place within the B-mode image
+           origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
+                        [row, column]
+           spacing:  The number of B-mode pixels separating paramImage's pixels
+                        [rows, columns]
+           colormap:  The colormap of the parametric image'''
+
+         
+        self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels)
+ 
         #Convert array containing param values to RGBALpha array
         from matplotlib import cm
 
@@ -454,7 +488,7 @@ class rfClass(object):
         return bMode
 
 
-    def SetRoiFixedSize(self, windowX = 4, windowY = 4):
+    def SetRoiFixedSize(self, windowX = 4, windowY = 4, parametricImage = None, origin = None, spacing = None):
         #The Roi size here is given in mm.  For a phased array probe windowX is the
         #number of A-lines in an ROI.
 
@@ -470,7 +504,12 @@ class rfClass(object):
         
         #Compute the center of the bounding box and its size in pixels
         if self.imageType == 'la':        
-            plt.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+            if parametricImage == None:
+                plt.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+            else:
+                bMode = self.CreateParametricImage(paramImage, origin, spacing)
+                plt.imshow(bmode, extent = [0,xExtent,yExtent,0], cmap = 'gray', vmin = -3, vmax = 0 )
+ 
             x= plt.ginput()
             plt.close()
             boxX = int( x[0][0]/self.deltaX )
@@ -498,7 +537,15 @@ class rfClass(object):
         if self.imageType == 'ps':
             fig = plt.figure()
             ax = fig.add_subplot(1,1,1)
-            ax.pcolormesh(self.X, self.Y, bmode, cmap = 'gray', vmin = -3, vmax = 0)
+            if parametricImage == None:
+                ax.pcolormesh(self.X, self.Y, bmode, cmap = 'gray', vmin = -3, vmax = 0)
+            else:
+                ax.pcolormesh(self.X, self.Y, bmode, cmap = 'gray', vmin = -3, vmax = 0, hold = True)
+                paramUp = self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing)
+                xx = self.X[origin[0]:origin[0] + paramUp.shape[0], origin[1]:origin[1] + paramUp.shape[1]]
+                yy = self.Y[origin[0]:origin[0] + paramUp.shape[0], origin[1]:origin[1] + paramUp.shape[1]]
+                ax.pcolormesh(xx,yy,paramUp)
+
             ax.set_axis_bgcolor("k")
             plt.ylim(plt.ylim()[::-1])
             x = plt.ginput()
@@ -515,6 +562,45 @@ class rfClass(object):
             
             closestLine = abs(beamLineXPos - xPos).argmin()
             closestPoint = abs(np.cos(angles[closestLine])*np.arange(self.points)*self.deltaY  - depth).argmin()
+
+            extentRPixels = int(windowY/self.deltaY)
+            
+            xLow = closestLine - windowX//2
+            if xLow < 0:
+                xLow = 0
+            xHigh = closestLine + windowX//2
+            if xHigh > self.lines:
+                xHigh = self.lines
+            xLow = xHigh - windowX
+
+            yLow = closestPoint - extentRPixels//2
+            if yLow < 0:
+                yLow = 0
+            yHigh = yLow + extentRPixels
+            
+            if yHigh > self.points:
+                yHigh = self.points
+            yLow = yHigh - extentRPixels
+        
+        if self.imageType == 'wobbler':
+            fig = plt.figure()
+            ax = fig.add_subplot(1,1,1)
+            ax.pcolormesh(self.X, self.Y, bmode, cmap = 'gray', vmin = -3, vmax = 0)
+            ax.set_axis_bgcolor("k")
+            plt.ylim(plt.ylim()[::-1])
+            x = plt.ginput()
+            plt.close() 
+           
+            #pain in the ass
+            #Find X-coordinates of beamlines at depth Y
+            xPos = x[0][0]
+            depth = x[0][1]
+
+            rPos = np.sqrt(xPos**2 + depth**2)
+            thetaPos = np.arctan(xPos/depth)
+
+            closestLine = int(thetaPos/self.deltaTheta + (self.lines/2) )
+            closestPoint = int( (rPos - self.R1)/self.deltaY )
 
             extentRPixels = int(windowY/self.deltaY)
             
@@ -571,7 +657,7 @@ class rfClass(object):
             plt.ylabel('Depth (mm)')
             plt.show()
         
-        if self.imageType == 'ps':
+        if self.imageType == 'ps' or self.imageType == 'wobbler':
             ax.pcolormesh(self.X, self.Y,bmode, cmap = palette, vmin = -3, vmax = 0)
             ax.set_axis_bgcolor("k")
             #plt.xticks( np.arange(0,self.fovX, 10) )
@@ -650,7 +736,8 @@ class rfClass(object):
     def CreateRoiArray(self):
         #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
-        self.ReadFrame(0)
+        if self.data == None:
+            self.ReadFrame(0)
         temp = self.data
 
         #Create masked array with B-mode data, mask entries for box
@@ -695,7 +782,7 @@ class rfClass(object):
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
 
-        if self.imageType == 'ps':
+        if self.imageType == 'ps' or self.imageType == 'wobbler':
             ax.pcolormesh(self.X, self.Y,bMode, cmap = palette, vmin = -3, vmax = 0)
             ax.set_axis_bgcolor("k")
             #plt.xticks( np.arange(0,self.fovX, 10) )
@@ -720,7 +807,7 @@ class rfClass(object):
         fig = plt.figure()
         ax = fig.add_subplot(1,1,1)
        
-        if self.imageType == 'ps':
+        if self.imageType == 'ps' or self.imageType == 'wobbler':
             ax.pcolormesh(self.X, self.Y,bMode, cmap = palette, vmin = -3, vmax = 0)
             ax.set_axis_bgcolor("k")
             #plt.xticks( np.arange(0,self.fovX, 10) )
@@ -728,6 +815,9 @@ class rfClass(object):
             plt.xlabel('Width (mm)')
             plt.ylabel('Depth (mm)')
             plt.ylim(plt.ylim()[::-1])
+            if self.imageType == 'wobbler':
+                from matplotlib.ticker import MaxNLocator
+                plt.gca().yaxis.set_major_locator(MaxNLocator(prune='lower'))
         else:
             im = plt.imshow(bMode, cmap = palette, extent = [0, self.fovX, self.fovY, 0])
                     
