@@ -451,7 +451,7 @@ class rfClass(object):
 
         return paramImageUp
 
-    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, frameNo = 0, colormap = 'jet', vmin = None, vmax = None):
+    def CreateParametricImage(self, paramImage, origin, spacing, inPixels = True, colormap = 'jet',frameNo = 0,  vmin = None, vmax = None):
         '''Input:
            paramImage: The image to place within the B-mode image
            origin:  The B-mode pixel at which the upper left hand corner of the parametric image is located.
@@ -463,6 +463,17 @@ class rfClass(object):
          
         paramImageUp = self.ParametricImageResolutionToBmodeResolution(paramImage, origin, spacing, inPixels, vmin, vmax)
  
+        if not inPixels:
+            origin = np.array(origin); spacing = np.array(spacing)
+            
+            origin[0] /= self.deltaY
+            spacing[0] /= self.deltaY
+            origin[1] /= self.deltaX
+            spacing[1] /= self.deltaX
+
+            origin = origin.round().astype('int')
+            spacing = spacing.round().astype('int')
+        
         #Convert array containing param values to RGBALpha array
         from matplotlib import cm
 
