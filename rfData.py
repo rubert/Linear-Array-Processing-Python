@@ -673,7 +673,7 @@ class rfClass(object):
             plt.ylim(plt.ylim()[::-1])
             plt.show()
    
-
+    
     def SetRoiBoxSelect(self):
         """
         Do a mouseclick somewhere, move the mouse to some destination, release
@@ -736,7 +736,10 @@ class rfClass(object):
 
         plt.imshow(bMode, cmap = cm.gray, extent = [0, self.fovX, self.fovY, 0])
         plt.show()
-        
+   
+    def ReturnRoiData(self):
+        return self.data[self.roiY[0]:self.roiY[1], self.roiX[0]:self.roiX[1]] 
+
     def CreateRoiArray(self):
         #Check that a Data set has been loaded
         #could be image sequence or just a 2-D image
